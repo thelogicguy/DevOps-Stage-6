@@ -89,7 +89,7 @@ resource "aws_security_group" "app_server" {
 # Key Pair
 resource "aws_key_pair" "deployer" {
   key_name   = "${var.project_name}-key"
-  public_key = file(var.ssh_public_key_path)
+  public_key = var.ssh_public_key != "" ? var.ssh_public_key : file(var.ssh_public_key_path)
 
   tags = {
     Name    = "${var.project_name}-key"
