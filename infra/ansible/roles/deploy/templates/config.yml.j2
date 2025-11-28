@@ -19,6 +19,7 @@ http:
       tls:
         certResolver: cloudflare
       middlewares:
+        - auth-stripprefix
         - secureHeaders
         - gzip
 
@@ -52,6 +53,7 @@ http:
       tls:
         certResolver: cloudflare
       middlewares:
+        - todos-stripprefix
         - secureHeaders
         - gzip
 
@@ -63,6 +65,7 @@ http:
       tls:
         certResolver: cloudflare
       middlewares:
+        - users-stripprefix
         - secureHeaders
         - gzip
 
@@ -88,6 +91,21 @@ http:
           - url: "http://users-api:8081"
 
   middlewares:
+    auth-stripprefix:
+      stripPrefix:
+        prefixes:
+          - /api/auth
+
+    todos-stripprefix:
+      stripPrefix:
+        prefixes:
+          - /api/todos
+
+    users-stripprefix:
+      stripPrefix:
+        prefixes:
+          - /api/users
+
     secureHeaders:
       headers:
         sslRedirect: true
