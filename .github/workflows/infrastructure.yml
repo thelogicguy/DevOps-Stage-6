@@ -69,9 +69,11 @@ jobs:
           elif [ $exitcode -eq 2 ]; then
             echo "has_changes=true" >> $GITHUB_OUTPUT
             echo "Drift detected - changes required"
+            exit 0
           else
             echo "has_changes=false" >> $GITHUB_OUTPUT
             echo "No changes detected - infrastructure is in sync"
+            exit 0
           fi
 
       - name: Upload Terraform Plan
