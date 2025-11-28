@@ -1,4 +1,92 @@
 http:
+  routers:
+    frontend:
+      rule: "Host(`{{ domain }}`)"
+      service: frontend
+      entryPoints:
+        - https
+      tls:
+        certResolver: cloudflare
+      middlewares:
+        - secureHeaders
+        - gzip
+
+    auth:
+      rule: "Host(`{{ domain }}`) && PathPrefix(`/api/auth`)"
+      service: auth
+      entryPoints:
+        - https
+      tls:
+        certResolver: cloudflare
+      middlewares:
+        - secureHeaders
+        - gzip
+
+    login:
+      rule: "Host(`{{ domain }}`) && Path(`/login`)"
+      service: auth
+      entryPoints:
+        - https
+      tls:
+        certResolver: cloudflare
+      middlewares:
+        - secureHeaders
+        - gzip
+
+    todos-direct:
+      rule: "Host(`{{ domain }}`) && PathPrefix(`/todos`)"
+      service: todos
+      entryPoints:
+        - https
+      tls:
+        certResolver: cloudflare
+      middlewares:
+        - secureHeaders
+        - gzip
+
+    todos:
+      rule: "Host(`{{ domain }}`) && PathPrefix(`/api/todos`)"
+      service: todos
+      entryPoints:
+        - https
+      tls:
+        certResolver: cloudflare
+      middlewares:
+        - secureHeaders
+        - gzip
+
+    users:
+      rule: "Host(`{{ domain }}`) && PathPrefix(`/api/users`)"
+      service: users
+      entryPoints:
+        - https
+      tls:
+        certResolver: cloudflare
+      middlewares:
+        - secureHeaders
+        - gzip
+
+  services:
+    frontend:
+      loadBalancer:
+        servers:
+          - url: "http://frontend:8080"
+
+    auth:
+      loadBalancer:
+        servers:
+          - url: "http://auth-api:8080"
+
+    todos:
+      loadBalancer:
+        servers:
+          - url: "http://todos-api:8082"
+
+    users:
+      loadBalancer:
+        servers:
+          - url: "http://users-api:8081"
+
   middlewares:
     secureHeaders:
       headers:
@@ -7,6 +95,6 @@ http:
         stsIncludeSubdomains: true
         stsPreload: true
         stsSeconds: 31536000
-    
+
     gzip:
       compress: {}
