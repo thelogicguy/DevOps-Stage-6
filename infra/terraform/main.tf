@@ -88,10 +88,9 @@ resource "aws_security_group" "app_server" {
 
 # Local values for SSH key handling
 locals {
-  # Use ssh_public_key if provided (CI/CD), otherwise read from file (local)
-  ssh_public_key_content = var.ssh_public_key != "" ? var.ssh_public_key : (
-    var.ssh_public_key_path != "" ? file(var.ssh_public_key_path) : ""
-  )
+  # Use ssh_public_key if provided (CI/CD), otherwise try to read from file (local)
+  # Use try() to gracefully handle missing files in CI
+  ssh_public_key_content = var.ssh_public_key != "" ? var.ssh_public_key : try(file(var.ssh_public_key_path), "")
 }
 
 # Key Pair
