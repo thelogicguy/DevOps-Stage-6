@@ -1,0 +1,119 @@
+# In /infra/ansible/roles/deploy/tasks/main.yml
+- name: Ensure application repository is present and up-to-date
+  ansible.builtin.git:
+    repo: "{{ app_repo_url }}"
+    dest: "{{ app_directory }}"
+    version: "{{ app_repo_branch | default('main') }}"
+    update: yes 
+    force: yes
+    accept_hostkey: yes
+    # Removed the unsupported 'owner' and 'group' parameters
+  register: git_deployment
+
+# 2. Ensure correct ownership of application directory
+- name: Ensure correct ownership of application directory
+  ansible.builtin.file:
+    path: "{{ app_directory }}" 
+    owner: "{{ ansible_user }}" 
+    group: "{{ ansible_user }}" 
+    recurse: yes
+    state: directory
+
+# 3. Configuration file changes (using templates)
+- name: Copy environment file from template
+  template:
+    src: env.j2
+    dest: "{{ app_directory }}/.env"
+    owner: "{{ ansible_user }}"
+    group: "{{ ansible_user }}"
+    mode: '0600'
+  register: env_file
+
+- name: Copy Traefik configuration
+  template:
+    src: traefik.yml.j2
+    dest: "{{ app_directory }}/traefik/traefik.yml"
+    owner: "{{ ansible_user }}"
+    group: "{{ ansible_user }}"
+    mode: '0644'
+  register: traefik_config
+
+- name: Copy Traefik dynamic configuration
+  template:
+    src: config.yml.j2
+    dest: "{{ app_directory }}/traefik/config.yml"
+    owner: "{{ ansible_user }}"
+    group: "{{ ansible_user }}"
+    mode: '0644'
+  register: traefik_dynamic_config
+
+# 3. Controlled Shutdown and Build
+- name: Stop existing containers if configuration changed
+  command: docker compose down
+  args:
+    chdir: "{{ app_directory }}"
+  become_user: "{{ ansible_user }}"
+  # Updated the 'git_pull.changed or git_clone.changed' check to the new register variable
+  when: env_file.changed or traefik_config.changed or traefik_dynamic_config.changed or git_deployment.changed
+  ignore_errors: true
+
+- name: Pull Docker images
+  command: docker compose pull
+  args:
+    chdir: "{{ app_directory }}"
+  become_user: "{{ ansible_user }}"
+  register: docker_pull
+  changed_when: "'Pulled' in docker_pull.stdout or 'Downloaded' in docker_pull.stdout"
+
+- name: Build Docker images
+  command: docker compose build --no-cache
+  args:
+    chdir: "{{ app_directory }}"
+  become_user: "{{ ansible_user }}"
+  when: git_deployment.changed # Only build if the code changed
+  register: docker_build
+
+# 4. Startup and Verification
+- name: Start application services
+  command: docker compose up -d
+  args:
+    chdir: "{{ app_directory }}"
+  become_user: "{{ ansible_user }}"
+  register: compose_up
+
+- name: Wait for services to start
+  wait_for:
+    timeout: 60
+  when: compose_up.changed
+
+- name: Prune unused Docker images
+  command: docker image prune -af
+  become_user: "{{ ansible_user }}"
+  when: docker_build.changed
+  changed_when: true
+
+- name: Get running containers
+  command: docker compose ps
+  args:
+    chdir: "{{ app_directory }}"
+  become_user: "{{ ansible_user }}"
+  register: running_containers
+  changed_when: false
+
+- name: Display running containers
+  debug:
+    var: running_containers.stdout_lines
+
+- name: Check Traefik logs for errors
+  command: docker compose logs --tail=50 traefik
+  args:
+    chdir: "{{ app_directory }}"
+  become_user: "{{ ansible_user }}"
+  register: traefik_logs
+  changed_when: false
+  failed_when: false
+
+- name: Display recent Traefik logs
+  debug:
+    var: traefik_logs.stdout_lines
+  when: traefik_logs.rc == 0

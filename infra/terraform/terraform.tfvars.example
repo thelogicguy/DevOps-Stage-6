@@ -1,0 +1,13 @@
+aws_region           = "us-east-1"
+project_name         = "todo-app"
+instance_type        = "t3.medium"
+root_volume_size     = 30
+ssh_user             = "ubuntu"
+ssh_public_key_path  = "~/.ssh/id_rsa.pub"
+ssh_private_key_path = "~/.ssh/id_rsa"
+ssh_allowed_ips      = ["0.0.0.0/0"]
+
+domain               = "your-domain.com"
+cloudflare_email     = "your-email@example.com"
+cloudflare_api_token = "your-cloudflare-api-token"
+jwt_secret           = "your-jwt-secret-generate-with-openssl"
