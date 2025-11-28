@@ -22,6 +22,10 @@ providers:
   file:
     filename: /config.yml
     watch: true
+  docker:
+    endpoint: "unix:///var/run/docker.sock"
+    exposedByDefault: false
+    network: devops-stage-6_web
 
 
 ###############################################
@@ -30,7 +34,7 @@ providers:
 certificatesResolvers:
   cloudflare:
     acme:
-      email: "{{ cloudflare_email }}"
+      email: "daaniel.macdonald@gmail.com"
       storage: /acme.json
       dnsChallenge:
         provider: cloudflare
