@@ -48,6 +48,9 @@
     groups: docker
     append: yes
 
+- name: Reset SSH connection to apply docker group membership
+  meta: reset_connection
+
 - name: Install Docker Compose standalone
   get_url:
     url: "https://github.com/docker/compose/releases/download/v{{ docker_compose_version }}/docker-compose-linux-x86_64"

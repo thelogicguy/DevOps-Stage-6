@@ -3,9 +3,9 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# Install system dependencies
+# Install system dependencies for potential C extensions
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends gcc && \
+    apt-get install -y --no-install-recommends gcc python3-dev && \
     rm -rf /var/lib/apt/lists/*
 
 # Copy requirements
@@ -27,4 +27,4 @@ USER appuser
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
   CMD python -c "import redis; r = redis.Redis(host='redis-queue', port=6379); r.ping()" || exit 1
 
-CMD ["python", "processor.py"]
+CMD ["python", "main.py"]

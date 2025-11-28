@@ -99,7 +99,6 @@
   command: docker compose down
   args:
     chdir: "{{ app_directory }}"
-  become_user: "{{ ansible_user }}"
   when: env_file.changed or traefik_config.changed or traefik_dynamic_config.changed or git_pull.changed
   ignore_errors: true
 
@@ -107,23 +106,20 @@
   command: docker compose pull
   args:
     chdir: "{{ app_directory }}"
-  become_user: "{{ ansible_user }}"
   register: docker_pull
   changed_when: "'Pulled' in docker_pull.stdout or 'Downloaded' in docker_pull.stdout"
   ignore_errors: true
 
 - name: Build Docker images
-  command: docker compose build --no-cache
+  command: docker compose build
   args:
     chdir: "{{ app_directory }}"
-  become_user: "{{ ansible_user }}"
   register: docker_build
 
 - name: Start application services
   command: docker compose up -d
   args:
     chdir: "{{ app_directory }}"
-  become_user: "{{ ansible_user }}"
   register: compose_up
 
 - name: Wait for services to start
@@ -135,7 +131,6 @@
   command: docker image prune -af
   args:
     chdir: "{{ app_directory }}"
-  become_user: "{{ ansible_user }}"
   when: docker_build.changed
   changed_when: true
 
@@ -143,7 +138,6 @@
   command: docker compose ps
   args:
     chdir: "{{ app_directory }}"
-  become_user: "{{ ansible_user }}"
   register: running_containers
   changed_when: false
 
@@ -155,7 +149,6 @@
   command: docker compose logs --tail=50 traefik
   args:
     chdir: "{{ app_directory }}"
-  become_user: "{{ ansible_user }}"
   register: traefik_logs
   changed_when: false
   failed_when: false
