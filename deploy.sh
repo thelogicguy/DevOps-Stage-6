@@ -131,56 +131,39 @@ check_config_files() {
 
 setup_remote_state() {
     log_step "Setting up remote state backend..."
-    
+
     cd infra/terraform
-    
+
     BUCKET_NAME=$(grep 'bucket.*=' backend.tf | grep -v '#' | sed 's/.*"\(.*\)".*/\1/' | head -1)
-    TABLE_NAME=$(grep 'dynamodb_table.*=' backend.tf | grep -v '#' | sed 's/.*"\(.*\)".*/\1/' | head -1)
     REGION=$(grep 'region.*=' backend.tf | grep -v '#' | sed 's/.*"\(.*\)".*/\1/' | head -1)
-    
-    if [ -z "$BUCKET_NAME" ] || [ -z "$TABLE_NAME" ]; then
+
+    if [ -z "$BUCKET_NAME" ]; then
         log_error "Could not parse backend configuration from backend.tf"
         cd ../..
         exit 1
     fi
-    
-    log_info "Backend: bucket=$BUCKET_NAME, table=$TABLE_NAME, region=$REGION"
-    
+
+    log_info "Backend: bucket=$BUCKET_NAME, region=$REGION"
+
     # Create S3 bucket if needed
     if ! aws s3 ls "s3://${BUCKET_NAME}" &> /dev/null; then
         log_warn "Creating S3 bucket..."
-        
+
         if [ "$REGION" == "us-east-1" ]; then
             aws s3api create-bucket --bucket "${BUCKET_NAME}" --region "${REGION}" &> /dev/null || true
         else
             aws s3api create-bucket --bucket "${BUCKET_NAME}" --region "${REGION}" \
                 --create-bucket-configuration LocationConstraint="${REGION}" &> /dev/null || true
         fi
-        
+
         aws s3api put-bucket-versioning --bucket "${BUCKET_NAME}" \
             --versioning-configuration Status=Enabled &> /dev/null || true
-        
+
         log_info "S3 bucket created ✓"
     else
         log_info "S3 bucket exists ✓"
     fi
-    
-    # Create DynamoDB table if needed
-    if ! aws dynamodb describe-table --table-name "${TABLE_NAME}" --region "${REGION}" &> /dev/null; then
-        log_warn "Creating DynamoDB table..."
-        aws dynamodb create-table \
-            --table-name "${TABLE_NAME}" \
-            --attribute-definitions AttributeName=LockID,AttributeType=S \
-            --key-schema AttributeName=LockID,KeyType=HASH \
-            --provisioned-throughput ReadCapacityUnits=5,WriteCapacityUnits=5 \
-            --region "${REGION}" &> /dev/null || true
-        
-        aws dynamodb wait table-exists --table-name "${TABLE_NAME}" --region "${REGION}" &> /dev/null || true
-        log_info "DynamoDB table created ✓"
-    else
-        log_info "DynamoDB table exists ✓"
-    fi
-    
+
     cd ../..
 }
 
@@ -254,80 +237,6 @@ prompt_clean_slate() {
     [[ $REPLY =~ ^[Yy][Ee][Ss]$ ]]
 }
 
-check_and_clear_lock() {
-    log_info "Checking for state locks..."
-
-    # Try to run plan with short timeout to detect locks
-    if ! terraform plan -input=false -lock-timeout=10s &> /tmp/tf_lock_check.log; then
-        if grep -q "Error acquiring the state lock" /tmp/tf_lock_check.log; then
-            # Strip ANSI color codes for reliable parsing
-            # Create a clean version without color codes
-            sed 's/\x1b\[[0-9;]*m//g' /tmp/tf_lock_check.log > /tmp/tf_lock_check_clean.log
-
-            # Extract lock information from the "Lock Info:" section
-            # The Terraform output format is:
-            # Lock Info:
-            #   ID:        <lock-id>
-            #   Path:      <path>
-            #   Who:       <who>
-            #   Created:   <timestamp>
-            LOCK_ID=$(sed -n '/Lock Info:/,/^$/p' /tmp/tf_lock_check_clean.log | grep "ID:" | awk '{print $2}')
-            LOCK_TIME=$(sed -n '/Lock Info:/,/^$/p' /tmp/tf_lock_check_clean.log | grep "Created:" | awk '{$1=""; print $0}' | xargs)
-            LOCK_WHO=$(sed -n '/Lock Info:/,/^$/p' /tmp/tf_lock_check_clean.log | grep "Who:" | awk '{$1=""; print $0}' | xargs)
-
-            # Validate that we successfully parsed the lock ID
-            if [ -z "$LOCK_ID" ]; then
-                log_error "Could not parse lock ID from Terraform output"
-                log_error "Please manually unlock using:"
-                log_error "  cd infra/terraform && terraform force-unlock <LOCK_ID>"
-                echo ""
-                log_error "Raw Terraform output:"
-                cat /tmp/tf_lock_check.log
-                rm -f /tmp/tf_lock_check.log /tmp/tf_lock_check_clean.log
-                exit 1
-            fi
-
-            log_warn "Found state lock:"
-            log_warn "  ID: $LOCK_ID"
-            log_warn "  Created: $LOCK_TIME"
-            log_warn "  By: $LOCK_WHO"
-            echo ""
-
-            read -p "$(echo -e ${YELLOW}Automatically unlock? [yes/NO]: ${NC})" -r
-            echo ""
-
-            if [[ $REPLY =~ ^[Yy][Ee][Ss]$ ]]; then
-                log_info "Unlocking state..."
-                if terraform force-unlock -force "$LOCK_ID"; then
-                    log_info "State unlocked ✓"
-                    sleep 2
-                else
-                    log_error "Failed to unlock state with ID: $LOCK_ID"
-                    log_info "You may need to manually force unlock:"
-                    log_info "  cd infra/terraform && terraform force-unlock -force $LOCK_ID"
-                    rm -f /tmp/tf_lock_check.log /tmp/tf_lock_check_clean.log
-                    exit 1
-                fi
-            else
-                log_error "Cannot proceed with locked state"
-                log_info "To manually unlock, run:"
-                log_info "  cd infra/terraform && terraform force-unlock -force $LOCK_ID"
-                rm -f /tmp/tf_lock_check.log /tmp/tf_lock_check_clean.log
-                exit 1
-            fi
-        else
-            # Some other error, not a lock issue
-            log_error "Terraform plan failed (not a lock issue):"
-            cat /tmp/tf_lock_check.log
-            rm -f /tmp/tf_lock_check.log
-            exit 1
-        fi
-    else
-        log_info "No state locks detected ✓"
-    fi
-
-    rm -f /tmp/tf_lock_check.log /tmp/tf_lock_check_clean.log
-}
 
 deploy_infrastructure() {
     log_step "Deploying infrastructure with Terraform..."
@@ -339,9 +248,6 @@ deploy_infrastructure() {
 
     log_info "Validating configuration..."
     terraform validate
-
-    # Check and clear any locks before proceeding
-    check_and_clear_lock
 
     log_info "Planning changes..."
     terraform plan -out=tfplan
