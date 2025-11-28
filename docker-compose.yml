@@ -169,11 +169,11 @@ services:
       - "traefik.http.middlewares.users-stripprefix.stripprefix.prefixes=/api/users"
       - "traefik.http.routers.users-secure.middlewares=users-stripprefix"
     depends_on:
-      - redis
+      - redis-queue
 
   log-processor:
     build:
-      context: ./log-processor
+      context: ./log-message-processor
       dockerfile: Dockerfile
     container_name: log-processor
     restart: unless-stopped
