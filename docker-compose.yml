@@ -84,10 +84,11 @@ services:
     container_name: auth-api
     restart: unless-stopped
     environment:
-      - PORT=8080
+      - AUTH_API_PORT=8080
       - REDIS_HOST=${REDIS_HOST:-redis-queue}
       - REDIS_PORT=${REDIS_PORT:-6379}
       - JWT_SECRET=${JWT_SECRET}
+      - USERS_API_ADDRESS=${USERS_API_ADDRESS:-http://users-api:8081}
     networks:
       - web
       - backend
@@ -115,7 +116,7 @@ services:
     container_name: todos-api
     restart: unless-stopped
     environment:
-      - PORT=3000
+      - TODO_API_PORT=8082
       - REDIS_HOST=${REDIS_HOST:-redis-queue}
       - REDIS_PORT=${REDIS_PORT:-6379}
       - REDIS_CHANNEL=${REDIS_CHANNEL:-log_channel}
