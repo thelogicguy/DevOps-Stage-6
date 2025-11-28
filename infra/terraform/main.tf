@@ -86,14 +86,26 @@ resource "aws_security_group" "app_server" {
   }
 }
 
+# Local values for SSH key handling
+locals {
+  # Use ssh_public_key if provided (CI/CD), otherwise read from file (local)
+  ssh_public_key_content = var.ssh_public_key != "" ? var.ssh_public_key : (
+    var.ssh_public_key_path != "" ? file(var.ssh_public_key_path) : ""
+  )
+}
+
 # Key Pair
 resource "aws_key_pair" "deployer" {
   key_name   = "${var.project_name}-key"
-  public_key = var.ssh_public_key != "" ? var.ssh_public_key : file(var.ssh_public_key_path)
+  public_key = local.ssh_public_key_content
 
   tags = {
     Name    = "${var.project_name}-key"
     Project = var.project_name
+  }
+
+  lifecycle {
+    ignore_changes = [public_key]
   }
 }
 
