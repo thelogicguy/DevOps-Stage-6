@@ -128,27 +128,27 @@ jobs:
       - name: Prepare email body
         run: |
           cat > email-body.txt <<EOF
-          ⚠️ TERRAFORM DRIFT DETECTED - ACTION REQUIRED ⚠️
+          TERRAFORM DRIFT DETECTED - ACTION REQUIRED
 
           Configuration drift has been detected in your infrastructure!
 
-          📋 DETAILS:
+          DETAILS:
           Repository: ${{ github.repository }}
           Branch: ${{ github.ref_name }}
           Commit: ${{ github.sha }}
           Triggered by: ${{ github.actor }}
 
-          📝 DETECTED CHANGES:
-          ═══════════════════════════════════════════════════════════
+          DETECTED CHANGES:
+          ================================================================
           EOF
 
           cat plan-output.txt >> email-body.txt
 
           cat >> email-body.txt <<EOF
 
-          ═══════════════════════════════════════════════════════════
+          ================================================================
 
-          🔐 APPROVAL REQUIRED:
+          APPROVAL REQUIRED:
           These changes require your manual approval before they can be applied.
 
           TO APPROVE:
@@ -157,7 +157,7 @@ jobs:
           3. Select the "production" environment
           4. Click "Approve and deploy"
 
-          ⚠️ IMPORTANT:
+          IMPORTANT:
           - Review the changes above carefully before approving
           - If you did not expect these changes, investigate immediately
           - Once approved, Terraform will automatically apply the changes
@@ -170,12 +170,13 @@ jobs:
         with:
           server_address: smtp.mail.yahoo.com
           server_port: 587
+          secure: true
           username: ${{ secrets.YAHOO_EMAIL_USERNAME }}
           password: ${{ secrets.YAHOO_EMAIL_PASSWORD }}
-          subject: "⚠️ Terraform Drift Detected - Approval Required"
+          subject: "Terraform Drift Detected - Approval Required"
           to: ${{ secrets.YAHOO_NOTIFICATION_EMAIL }}
-          from: "DevOps CI/CD <${{ secrets.YAHOO_EMAIL_USERNAME }}>"
-          body: file://email-body.txt
+          from: ${{ secrets.YAHOO_EMAIL_USERNAME }}
+          body: file://./email-body.txt
 
   await-approval:
     name: Wait for Manual Approval
@@ -249,18 +250,19 @@ jobs:
         with:
           server_address: smtp.mail.yahoo.com
           server_port: 587
+          secure: true
           username: ${{ secrets.YAHOO_EMAIL_USERNAME }}
           password: ${{ secrets.YAHOO_EMAIL_PASSWORD }}
-          subject: "✅ Terraform Apply Successful"
+          subject: "Terraform Apply Successful"
           to: ${{ secrets.YAHOO_NOTIFICATION_EMAIL }}
-          from: "DevOps CI/CD <${{ secrets.YAHOO_EMAIL_USERNAME }}>"
+          from: ${{ secrets.YAHOO_EMAIL_USERNAME }}
           body: |
             Terraform apply completed successfully!
-            
+
             Repository: ${{ github.repository }}
             Branch: ${{ github.ref_name }}
             Commit: ${{ github.sha }}
-            
+
             Infrastructure is now up to date.
 
       - name: Send failure notification
@@ -269,17 +271,18 @@ jobs:
         with:
           server_address: smtp.mail.yahoo.com
           server_port: 587
+          secure: true
           username: ${{ secrets.YAHOO_EMAIL_USERNAME }}
           password: ${{ secrets.YAHOO_EMAIL_PASSWORD }}
-          subject: "❌ Terraform Apply Failed"
+          subject: "Terraform Apply Failed"
           to: ${{ secrets.YAHOO_NOTIFICATION_EMAIL }}
-          from: "DevOps CI/CD <${{ secrets.YAHOO_EMAIL_USERNAME }}>"
+          from: ${{ secrets.YAHOO_EMAIL_USERNAME }}
           body: |
             Terraform apply failed!
-            
+
             Repository: ${{ github.repository }}
             Branch: ${{ github.ref_name }}
             Commit: ${{ github.sha }}
-            
+
             Please check the logs at:
             ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
