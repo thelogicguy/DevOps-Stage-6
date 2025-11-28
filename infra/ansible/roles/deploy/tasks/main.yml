@@ -111,7 +111,7 @@
   ignore_errors: true
 
 - name: Build Docker images
-  command: docker compose build
+  command: docker compose build --no-cache
   args:
     chdir: "{{ app_directory }}"
   register: docker_build
