@@ -167,13 +167,13 @@ jobs:
       - name: Send email notification
         uses: dawidd6/action-send-mail@v3
         with:
-          server_address: smtp.gmail.com
+          server_address: smtp.mail.yahoo.com
           server_port: 587
-          username: ${{ secrets.EMAIL_USERNAME }}
-          password: ${{ secrets.EMAIL_PASSWORD }}
+          username: ${{ secrets.YAHOO_EMAIL_USERNAME }}
+          password: ${{ secrets.YAHOO_EMAIL_PASSWORD }}
           subject: "⚠️ Terraform Drift Detected - Approval Required"
-          to: ${{ secrets.NOTIFICATION_EMAIL }}
-          from: "DevOps CI/CD <${{ secrets.EMAIL_USERNAME }}>"
+          to: ${{ secrets.YAHOO_NOTIFICATION_EMAIL }}
+          from: "DevOps CI/CD <${{ secrets.YAHOO_EMAIL_USERNAME }}>"
           body: file://email-body.txt
 
   await-approval:
@@ -246,13 +246,13 @@ jobs:
         if: success()
         uses: dawidd6/action-send-mail@v3
         with:
-          server_address: smtp.gmail.com
+          server_address: smtp.mail.yahoo.com
           server_port: 587
-          username: ${{ secrets.EMAIL_USERNAME }}
-          password: ${{ secrets.EMAIL_PASSWORD }}
+          username: ${{ secrets.YAHOO_EMAIL_USERNAME }}
+          password: ${{ secrets.YAHOO_EMAIL_PASSWORD }}
           subject: "✅ Terraform Apply Successful"
-          to: ${{ secrets.NOTIFICATION_EMAIL }}
-          from: "DevOps CI/CD <${{ secrets.EMAIL_USERNAME }}>"
+          to: ${{ secrets.YAHOO_NOTIFICATION_EMAIL }}
+          from: "DevOps CI/CD <${{ secrets.YAHOO_EMAIL_USERNAME }}>"
           body: |
             Terraform apply completed successfully!
             
@@ -266,13 +266,13 @@ jobs:
         if: failure()
         uses: dawidd6/action-send-mail@v3
         with:
-          server_address: smtp.gmail.com
+          server_address: smtp.mail.yahoo.com
           server_port: 587
-          username: ${{ secrets.EMAIL_USERNAME }}
-          password: ${{ secrets.EMAIL_PASSWORD }}
+          username: ${{ secrets.YAHOO_EMAIL_USERNAME }}
+          password: ${{ secrets.YAHOO_EMAIL_PASSWORD }}
           subject: "❌ Terraform Apply Failed"
-          to: ${{ secrets.NOTIFICATION_EMAIL }}
-          from: "DevOps CI/CD <${{ secrets.EMAIL_USERNAME }}>"
+          to: ${{ secrets.YAHOO_NOTIFICATION_EMAIL }}
+          from: "DevOps CI/CD <${{ secrets.YAHOO_EMAIL_USERNAME }}>"
           body: |
             Terraform apply failed!
             
