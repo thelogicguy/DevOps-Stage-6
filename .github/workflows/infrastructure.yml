@@ -170,13 +170,14 @@ jobs:
         with:
           server_address: smtp.mail.yahoo.com
           server_port: 587
-          secure: true
           username: ${{ secrets.YAHOO_EMAIL_USERNAME }}
           password: ${{ secrets.YAHOO_EMAIL_PASSWORD }}
           subject: "Terraform Drift Detected - Approval Required"
           to: ${{ secrets.YAHOO_NOTIFICATION_EMAIL }}
           from: ${{ secrets.YAHOO_EMAIL_USERNAME }}
           body: file://./email-body.txt
+          ignore_cert: true
+          convert_markdown: false
 
   await-approval:
     name: Wait for Manual Approval
@@ -250,12 +251,13 @@ jobs:
         with:
           server_address: smtp.mail.yahoo.com
           server_port: 587
-          secure: true
           username: ${{ secrets.YAHOO_EMAIL_USERNAME }}
           password: ${{ secrets.YAHOO_EMAIL_PASSWORD }}
           subject: "Terraform Apply Successful"
           to: ${{ secrets.YAHOO_NOTIFICATION_EMAIL }}
           from: ${{ secrets.YAHOO_EMAIL_USERNAME }}
+          ignore_cert: true
+          convert_markdown: false
           body: |
             Terraform apply completed successfully!
 
@@ -271,12 +273,13 @@ jobs:
         with:
           server_address: smtp.mail.yahoo.com
           server_port: 587
-          secure: true
           username: ${{ secrets.YAHOO_EMAIL_USERNAME }}
           password: ${{ secrets.YAHOO_EMAIL_PASSWORD }}
           subject: "Terraform Apply Failed"
           to: ${{ secrets.YAHOO_NOTIFICATION_EMAIL }}
           from: ${{ secrets.YAHOO_EMAIL_USERNAME }}
+          ignore_cert: true
+          convert_markdown: false
           body: |
             Terraform apply failed!
 
