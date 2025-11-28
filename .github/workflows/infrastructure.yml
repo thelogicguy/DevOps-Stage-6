@@ -56,7 +56,11 @@ jobs:
         id: plan
         working-directory: ./infra/terraform
         run: |
-          terraform plan -input=false -detailed-exitcode -out=tfplan || export exitcode=$?
+          set +e
+          terraform plan -input=false -detailed-exitcode -out=tfplan
+          exitcode=$?
+          set -e
+
           echo "exitcode=$exitcode" >> $GITHUB_OUTPUT
 
           if [ $exitcode -eq 1 ]; then
