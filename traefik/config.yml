@@ -7,16 +7,20 @@ http:
         - https
       tls:
         certResolver: cloudflare
+      middlewares:
+        - secureHeaders
+        - gzip
 
     auth:
       rule: "Host(`thelogicguy-leap.xyz`) && PathPrefix(`/api/auth`)"
       service: auth
-      middlewares:
-        - auth-stripprefix
       entryPoints:
         - https
       tls:
         certResolver: cloudflare
+      middlewares:
+        - secureHeaders
+        - gzip
 
     login:
       rule: "Host(`thelogicguy-leap.xyz`) && Path(`/login`)"
@@ -25,6 +29,9 @@ http:
         - https
       tls:
         certResolver: cloudflare
+      middlewares:
+        - secureHeaders
+        - gzip
 
     todos-direct:
       rule: "Host(`thelogicguy-leap.xyz`) && PathPrefix(`/todos`)"
@@ -33,26 +40,31 @@ http:
         - https
       tls:
         certResolver: cloudflare
+      middlewares:
+        - secureHeaders
+        - gzip
 
     todos:
       rule: "Host(`thelogicguy-leap.xyz`) && PathPrefix(`/api/todos`)"
       service: todos
-      middlewares:
-        - todos-stripprefix
       entryPoints:
         - https
       tls:
         certResolver: cloudflare
+      middlewares:
+        - secureHeaders
+        - gzip
 
     users:
       rule: "Host(`thelogicguy-leap.xyz`) && PathPrefix(`/api/users`)"
       service: users
-      middlewares:
-        - users-stripprefix
       entryPoints:
         - https
       tls:
         certResolver: cloudflare
+      middlewares:
+        - secureHeaders
+        - gzip
 
   services:
     frontend:
@@ -75,22 +87,8 @@ http:
         servers:
           - url: "http://users-api:8081"
 
-  middlewares:
-    auth-stripprefix:
-      stripPrefix:
-        prefixes:
-          - "/api/auth"
-
-    todos-stripprefix:
-      stripPrefix:
-        prefixes:
-          - "/api"
-
-    users-stripprefix:
-      stripPrefix:
-        prefixes:
-          - "/api"
-
+    
+middlewares:
     secureHeaders:
       headers:
         sslRedirect: true

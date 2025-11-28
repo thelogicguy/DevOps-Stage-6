@@ -105,8 +105,6 @@ services:
       - "traefik.http.routers.auth-secure.tls.certresolver=cloudflare"
       - "traefik.http.routers.auth-secure.service=auth"
       - "traefik.http.services.auth.loadbalancer.server.port=8080"
-      - "traefik.http.middlewares.auth-stripprefix.stripprefix.prefixes=/api/auth"
-      - "traefik.http.routers.auth-secure.middlewares=auth-stripprefix"
     depends_on:
       - redis-queue
 
@@ -136,9 +134,7 @@ services:
       - "traefik.http.routers.todos-secure.tls=true"
       - "traefik.http.routers.todos-secure.tls.certresolver=cloudflare"
       - "traefik.http.routers.todos-secure.service=todos"
-      - "traefik.http.services.todos.loadbalancer.server.port=3000"
-      - "traefik.http.middlewares.todos-stripprefix.stripprefix.prefixes=/api/todos"
-      - "traefik.http.routers.todos-secure.middlewares=todos-stripprefix"
+      - "traefik.http.services.todos.loadbalancer.server.port=8082"
     depends_on:
       - redis-queue
 
@@ -168,8 +164,6 @@ services:
       - "traefik.http.routers.users-secure.tls.certresolver=cloudflare"
       - "traefik.http.routers.users-secure.service=users"
       - "traefik.http.services.users.loadbalancer.server.port=8081"
-      - "traefik.http.middlewares.users-stripprefix.stripprefix.prefixes=/api/users"
-      - "traefik.http.routers.users-secure.middlewares=users-stripprefix"
     depends_on:
       - redis-queue
 
