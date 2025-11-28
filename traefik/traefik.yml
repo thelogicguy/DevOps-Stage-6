@@ -31,7 +31,7 @@ certificatesResolvers:
   cloudflare:
     acme:
       email: "{{ cloudflare_email }}"
-      storage: acme.json
+      storage: /acme.json
       dnsChallenge:
         provider: cloudflare
         resolvers:

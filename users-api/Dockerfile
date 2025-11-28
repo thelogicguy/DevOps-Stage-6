@@ -1,4 +1,4 @@
-FROM maven:3.9-eclipse-temurin-17-alpine AS builder
+FROM maven:3.9-eclipse-temurin-17 AS builder
 
 WORKDIR /app
 
@@ -8,14 +8,18 @@ RUN mvn dependency:go-offline -B
 COPY src ./src
 RUN mvn clean package -DskipTests
 
-FROM eclipse-temurin:17-jre-alpine
+FROM eclipse-temurin:17-jre
+
+RUN apt-get update && \
+    apt-get install -y wget && \
+    rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
 COPY --from=builder /app/target/*.jar app.jar
 
-RUN addgroup -g 1001 spring && \
-    adduser -S spring -u 1001 -G spring && \
+RUN groupadd -g 1001 spring && \
+    useradd -r -u 1001 -g spring spring && \
     chown -R spring:spring /app
 
 USER spring

@@ -14,17 +14,15 @@ entryPoints:
     address: ":443"
 
 providers:
-  docker:
-    endpoint: "unix:///var/run/docker.sock"
-    exposedByDefault: false
   file:
     filename: /config.yml
+    watch: true
 
 certificatesResolvers:
   cloudflare:
     acme:
-      email: {{ cloudflare_email }}
-      storage: acme.json
+      email: "{{ cloudflare_email }}"
+      storage: /acme.json
       dnsChallenge:
         provider: cloudflare
         resolvers:
