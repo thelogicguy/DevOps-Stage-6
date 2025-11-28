@@ -23,10 +23,11 @@ jobs:
   terraform-plan:
     name: Terraform Plan & Drift Detection
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     outputs:
       has_changes: ${{ steps.plan.outputs.has_changes }}
       plan_exitcode: ${{ steps.plan.outputs.exitcode }}
-    
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -55,7 +56,7 @@ jobs:
         id: plan
         working-directory: ./infra/terraform
         run: |
-          terraform plan -detailed-exitcode -out=tfplan || export exitcode=$?
+          terraform plan -input=false -detailed-exitcode -out=tfplan || export exitcode=$?
           echo "exitcode=$exitcode" >> $GITHUB_OUTPUT
 
           if [ $exitcode -eq 1 ]; then
@@ -103,6 +104,7 @@ jobs:
   send-drift-notification:
     name: Send Drift Detection Email
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     needs: terraform-plan
     if: needs.terraform-plan.outputs.has_changes == 'true'
 
@@ -167,6 +169,7 @@ jobs:
   await-approval:
     name: Wait for Manual Approval
     runs-on: ubuntu-latest
+    timeout-minutes: 1440
     needs: [terraform-plan, send-drift-notification]
     if: needs.terraform-plan.outputs.has_changes == 'true'
     environment:
@@ -181,9 +184,10 @@ jobs:
   terraform-apply:
     name: Terraform Apply
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     needs: [terraform-plan, await-approval]
     if: always() && needs.terraform-plan.result == 'success'
-    
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
