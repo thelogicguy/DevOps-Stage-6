@@ -1,5 +1,80 @@
 http:
+  routers:
+    frontend:
+      rule: "Host(`thelogicguy-leap.xyz`)"
+      service: frontend
+      entryPoints:
+        - https
+      tls:
+        certResolver: cloudflare
+
+    auth:
+      rule: "Host(`thelogicguy-leap.xyz`) && PathPrefix(`/api/auth`)"
+      service: auth
+      middlewares:
+        - auth-stripprefix
+      entryPoints:
+        - https
+      tls:
+        certResolver: cloudflare
+
+    todos:
+      rule: "Host(`thelogicguy-leap.xyz`) && PathPrefix(`/api/todos`)"
+      service: todos
+      middlewares:
+        - todos-stripprefix
+      entryPoints:
+        - https
+      tls:
+        certResolver: cloudflare
+
+    users:
+      rule: "Host(`thelogicguy-leap.xyz`) && PathPrefix(`/api/users`)"
+      service: users
+      middlewares:
+        - users-stripprefix
+      entryPoints:
+        - https
+      tls:
+        certResolver: cloudflare
+
+  services:
+    frontend:
+      loadBalancer:
+        servers:
+          - url: "http://frontend:8080"
+
+    auth:
+      loadBalancer:
+        servers:
+          - url: "http://auth-api:8080"
+
+    todos:
+      loadBalancer:
+        servers:
+          - url: "http://todos-api:8082"
+
+    users:
+      loadBalancer:
+        servers:
+          - url: "http://users-api:8081"
+
   middlewares:
+    auth-stripprefix:
+      stripPrefix:
+        prefixes:
+          - "/api/auth"
+
+    todos-stripprefix:
+      stripPrefix:
+        prefixes:
+          - "/api/todos"
+
+    users-stripprefix:
+      stripPrefix:
+        prefixes:
+          - "/api/users"
+
     secureHeaders:
       headers:
         sslRedirect: true
@@ -7,6 +82,6 @@ http:
         stsIncludeSubdomains: true
         stsPreload: true
         stsSeconds: 31536000
-    
+
     gzip:
       compress: {}
