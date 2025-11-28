@@ -3,7 +3,9 @@ import redis
 import os
 import json
 import requests
-from py_zipkin.zipkin import zipkin_span, ZipkinAttrs, generate_random_64bit_string
+from py_zipkin.zipkin import zipkin_span, ZipkinAttrs
+from py_zipkin.util import generate_random_64bit_string
+from py_zipkin.encoding import Encoding
 import time
 import random
 
@@ -21,7 +23,7 @@ if __name__ == '__main__':
         requests.post(
             zipkin_url,
             data=encoded_span,
-            headers={'Content-Type': 'application/x-thrift'},
+            headers={'Content-Type': 'application/json'},
         )
 
     pubsub = redis.Redis(host=redis_host, port=redis_port, db=0).pubsub()
@@ -50,7 +52,8 @@ if __name__ == '__main__':
                 ),
                 span_name='save_log',
                 transport_handler=http_transport,
-                sample_rate=100
+                sample_rate=100,
+                encoding=Encoding.V2_JSON
             ):
                 log_message(message)
         except Exception as e:

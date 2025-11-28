@@ -84,10 +84,14 @@ load_environment() {
         exit 1
     fi
     
-    # Source .env file safely
+    # Source .env file safely - create temp file for sourcing
+    local tmp_env=$(mktemp)
+    grep -v '^#' .env | grep -v '^$' | grep '=' | sed 's/\r$//' > "$tmp_env"
     set -a
-    source <(grep -v '^#' .env | grep -v '^$' | sed 's/\r$//')
+    # shellcheck disable=SC1090
+    source "$tmp_env"
     set +a
+    rm -f "$tmp_env"
     
     # Verify critical variables
     local missing_vars=()
@@ -250,25 +254,68 @@ prompt_clean_slate() {
     [[ $REPLY =~ ^[Yy][Ee][Ss]$ ]]
 }
 
+check_and_clear_lock() {
+    log_info "Checking for state locks..."
+
+    # Try to run plan with short timeout to detect locks
+    if ! terraform plan -input=false -lock-timeout=10s &> /tmp/tf_lock_check.log; then
+        if grep -q "Error acquiring the state lock" /tmp/tf_lock_check.log; then
+            LOCK_ID=$(grep "ID:" /tmp/tf_lock_check.log | awk '{print $2}')
+            LOCK_TIME=$(grep "Created:" /tmp/tf_lock_check.log | grep -oE '[0-9]{4}-[0-9]{2}-[0-9]{2}')
+            LOCK_WHO=$(grep "Who:" /tmp/tf_lock_check.log | awk '{print $2}')
+
+            log_warn "Found state lock:"
+            log_warn "  ID: $LOCK_ID"
+            log_warn "  Created: $LOCK_TIME"
+            log_warn "  By: $LOCK_WHO"
+            echo ""
+
+            read -p "$(echo -e ${YELLOW}Automatically unlock? [yes/NO]: ${NC})" -r
+            echo ""
+
+            if [[ $REPLY =~ ^[Yy][Ee][Ss]$ ]]; then
+                log_info "Unlocking state..."
+                terraform force-unlock -force "$LOCK_ID"
+                log_info "State unlocked ✓"
+                sleep 2
+            else
+                log_error "Cannot proceed with locked state"
+                exit 1
+            fi
+        else
+            # Some other error, not a lock issue
+            cat /tmp/tf_lock_check.log
+            exit 1
+        fi
+    else
+        log_info "No state locks detected ✓"
+    fi
+
+    rm -f /tmp/tf_lock_check.log
+}
+
 deploy_infrastructure() {
     log_step "Deploying infrastructure with Terraform..."
-    
+
     cd infra/terraform
-    
+
     log_info "Initializing Terraform..."
     terraform init -input=false
-    
+
     log_info "Validating configuration..."
     terraform validate
-    
+
+    # Check and clear any locks before proceeding
+    check_and_clear_lock
+
     log_info "Planning changes..."
     terraform plan -out=tfplan
-    
+
     log_info "Applying changes..."
     terraform apply -auto-approve tfplan
-    
+
     log_info "Infrastructure deployed ✓"
-    
+
     cd ../..
 }
 
