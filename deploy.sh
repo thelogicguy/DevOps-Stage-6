@@ -260,9 +260,32 @@ check_and_clear_lock() {
     # Try to run plan with short timeout to detect locks
     if ! terraform plan -input=false -lock-timeout=10s &> /tmp/tf_lock_check.log; then
         if grep -q "Error acquiring the state lock" /tmp/tf_lock_check.log; then
-            LOCK_ID=$(grep "ID:" /tmp/tf_lock_check.log | awk '{print $2}')
-            LOCK_TIME=$(grep "Created:" /tmp/tf_lock_check.log | grep -oE '[0-9]{4}-[0-9]{2}-[0-9]{2}')
-            LOCK_WHO=$(grep "Who:" /tmp/tf_lock_check.log | awk '{print $2}')
+            # Strip ANSI color codes for reliable parsing
+            # Create a clean version without color codes
+            sed 's/\x1b\[[0-9;]*m//g' /tmp/tf_lock_check.log > /tmp/tf_lock_check_clean.log
+
+            # Extract lock information from the "Lock Info:" section
+            # The Terraform output format is:
+            # Lock Info:
+            #   ID:        <lock-id>
+            #   Path:      <path>
+            #   Who:       <who>
+            #   Created:   <timestamp>
+            LOCK_ID=$(sed -n '/Lock Info:/,/^$/p' /tmp/tf_lock_check_clean.log | grep "ID:" | awk '{print $2}')
+            LOCK_TIME=$(sed -n '/Lock Info:/,/^$/p' /tmp/tf_lock_check_clean.log | grep "Created:" | awk '{$1=""; print $0}' | xargs)
+            LOCK_WHO=$(sed -n '/Lock Info:/,/^$/p' /tmp/tf_lock_check_clean.log | grep "Who:" | awk '{$1=""; print $0}' | xargs)
+
+            # Validate that we successfully parsed the lock ID
+            if [ -z "$LOCK_ID" ]; then
+                log_error "Could not parse lock ID from Terraform output"
+                log_error "Please manually unlock using:"
+                log_error "  cd infra/terraform && terraform force-unlock <LOCK_ID>"
+                echo ""
+                log_error "Raw Terraform output:"
+                cat /tmp/tf_lock_check.log
+                rm -f /tmp/tf_lock_check.log /tmp/tf_lock_check_clean.log
+                exit 1
+            fi
 
             log_warn "Found state lock:"
             log_warn "  ID: $LOCK_ID"
@@ -275,23 +298,35 @@ check_and_clear_lock() {
 
             if [[ $REPLY =~ ^[Yy][Ee][Ss]$ ]]; then
                 log_info "Unlocking state..."
-                terraform force-unlock -force "$LOCK_ID"
-                log_info "State unlocked ✓"
-                sleep 2
+                if terraform force-unlock -force "$LOCK_ID"; then
+                    log_info "State unlocked ✓"
+                    sleep 2
+                else
+                    log_error "Failed to unlock state with ID: $LOCK_ID"
+                    log_info "You may need to manually force unlock:"
+                    log_info "  cd infra/terraform && terraform force-unlock -force $LOCK_ID"
+                    rm -f /tmp/tf_lock_check.log /tmp/tf_lock_check_clean.log
+                    exit 1
+                fi
             else
                 log_error "Cannot proceed with locked state"
+                log_info "To manually unlock, run:"
+                log_info "  cd infra/terraform && terraform force-unlock -force $LOCK_ID"
+                rm -f /tmp/tf_lock_check.log /tmp/tf_lock_check_clean.log
                 exit 1
             fi
         else
             # Some other error, not a lock issue
+            log_error "Terraform plan failed (not a lock issue):"
             cat /tmp/tf_lock_check.log
+            rm -f /tmp/tf_lock_check.log
             exit 1
         fi
     else
         log_info "No state locks detected ✓"
     fi
 
-    rm -f /tmp/tf_lock_check.log
+    rm -f /tmp/tf_lock_check.log /tmp/tf_lock_check_clean.log
 }
 
 deploy_infrastructure() {
