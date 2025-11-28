@@ -26,6 +26,14 @@ http:
       tls:
         certResolver: cloudflare
 
+    todos-direct:
+      rule: "Host(`thelogicguy-leap.xyz`) && PathPrefix(`/todos`)"
+      service: todos
+      entryPoints:
+        - https
+      tls:
+        certResolver: cloudflare
+
     todos:
       rule: "Host(`thelogicguy-leap.xyz`) && PathPrefix(`/api/todos`)"
       service: todos
