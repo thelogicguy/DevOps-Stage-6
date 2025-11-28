@@ -148,7 +148,7 @@ services:
     restart: unless-stopped
     environment:
       - SERVER_PORT=8081
-      - SPRING_REDIS_HOST=redis
+      - SPRING_REDIS_HOST=${REDIS_HOST:-redis-queue}
       - SPRING_REDIS_PORT=6379
       - JWT_SECRET=${JWT_SECRET}
     networks:

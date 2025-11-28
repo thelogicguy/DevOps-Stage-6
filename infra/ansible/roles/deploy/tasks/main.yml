@@ -3,25 +3,70 @@
     path: "{{ app_directory }}/.git"
   register: git_repo
 
-- name: Clone application repository
+- name: Check if directory exists and is not empty
+  find:
+    paths: "{{ app_directory }}"
+    file_type: any
+  register: dir_contents
+  when: not git_repo.stat.exists
+  ignore_errors: true
+
+- name: Remove non-git directory if it exists
+  file:
+    path: "{{ app_directory }}"
+    state: absent
+  become: true
+  when: 
+    - not git_repo.stat.exists
+    - dir_contents.matched is defined
+    - dir_contents.matched > 0
+
+- name: Ensure parent directory exists
+  file:
+    path: "{{ app_directory | dirname }}"
+    state: directory
+    mode: '0755'
+  become: true
+
+# --- FIX: Ensure application directory exists and is owned by the app user ---
+- name: Ensure application directory exists and is owned by the app user
+  file:
+    path: "{{ app_directory }}"
+    state: directory
+    owner: "{{ ansible_user }}"
+    group: "{{ ansible_user }}"
+    mode: '0755'
+  become: true
+# -----------------------------------------------------------------------------
+
+- name: Clone application repository (first time)
   git:
     repo: "{{ app_repo_url }}"
     dest: "{{ app_directory }}"
     version: "{{ app_repo_branch }}"
-    force: yes
-  become_user: "{{ ansible_user }}"
+    force: no
+    update: no
+  # FIX: Removed 'become_user: "{{ ansible_user }}"' because the directory is now owned by this user
   when: not git_repo.stat.exists
-  register: git_clone
 
-- name: Pull latest changes from repository
+- name: Pull latest changes (subsequent runs)
   git:
     repo: "{{ app_repo_url }}"
     dest: "{{ app_directory }}"
     version: "{{ app_repo_branch }}"
     update: yes
+    force: yes
   become_user: "{{ ansible_user }}"
   when: git_repo.stat.exists
   register: git_pull
+
+- name: Fix ownership of application directory
+  file:
+    path: "{{ app_directory }}"
+    owner: "{{ ansible_user }}"
+    group: "{{ ansible_user }}"
+    recurse: yes
+  become: true
 
 - name: Copy environment file from template
   template:
@@ -55,7 +100,7 @@
   args:
     chdir: "{{ app_directory }}"
   become_user: "{{ ansible_user }}"
-  when: env_file.changed or traefik_config.changed or traefik_dynamic_config.changed or git_pull.changed or git_clone.changed
+  when: env_file.changed or traefik_config.changed or traefik_dynamic_config.changed or git_pull.changed
   ignore_errors: true
 
 - name: Pull Docker images
@@ -65,13 +110,13 @@
   become_user: "{{ ansible_user }}"
   register: docker_pull
   changed_when: "'Pulled' in docker_pull.stdout or 'Downloaded' in docker_pull.stdout"
+  ignore_errors: true
 
 - name: Build Docker images
   command: docker compose build --no-cache
   args:
     chdir: "{{ app_directory }}"
   become_user: "{{ ansible_user }}"
-  when: git_pull.changed or git_clone.changed
   register: docker_build
 
 - name: Start application services
@@ -88,6 +133,8 @@
 
 - name: Prune unused Docker images
   command: docker image prune -af
+  args:
+    chdir: "{{ app_directory }}"
   become_user: "{{ ansible_user }}"
   when: docker_build.changed
   changed_when: true
@@ -104,7 +151,7 @@
   debug:
     var: running_containers.stdout_lines
 
-- name: Check Traefik logs for errors
+- name: Check Traefik logs
   command: docker compose logs --tail=50 traefik
   args:
     chdir: "{{ app_directory }}"
@@ -113,7 +160,7 @@
   changed_when: false
   failed_when: false
 
-- name: Display recent Traefik logs
+- name: Display Traefik logs
   debug:
     var: traefik_logs.stdout_lines
   when: traefik_logs.rc == 0
