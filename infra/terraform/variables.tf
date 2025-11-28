@@ -66,3 +66,14 @@ variable "jwt_secret" {
   sensitive   = true
 }
 
+variable "app_repo_url" {
+  description = "Git repository URL for the application"
+  type        = string
+  default     = "https://github.com/thelogicguy/DevOps-Stage-6.git"
+}
+
+variable "app_repo_branch" {
+  description = "Git branch to deploy"
+  type        = string
+  default     = "main"
+}

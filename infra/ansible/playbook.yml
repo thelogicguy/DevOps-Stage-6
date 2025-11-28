@@ -5,10 +5,14 @@
   gather_facts: true
 
   vars:
-    app_repo_url: "https://github.com/thelogicguy/DevOps-Stage-6.git"
-    app_repo_branch: "main"
+    app_repo_url: "{{ lookup('env', 'APP_REPO_URL') | default('https://github.com/thelogicguy/DevOps-Stage-6.git', true) }}"
+    app_repo_branch: "{{ lookup('env', 'APP_REPO_BRANCH') | default('main', true) }}"
     app_directory: "/opt/todo-app"
     docker_compose_version: "2.23.0"
+    domain: "{{ lookup('env', 'DOMAIN') }}"
+    cloudflare_email: "{{ lookup('env', 'CF_API_EMAIL') }}"
+    cloudflare_api_token: "{{ lookup('env', 'CF_DNS_API_TOKEN') }}"
+    jwt_secret: "{{ lookup('env', 'JWT_SECRET') }}"
 
   pre_tasks:
     - name: Wait for system to become reachable
@@ -51,5 +55,5 @@
       debug:
         msg:
           - "Deployment completed successfully!"
-          - "Application URL: https://{{ lookup('env', 'DOMAIN') }}"
+          - "Application URL: https://{{ domain }}"
           - "Services status: {{ compose_status.stdout_lines }}"

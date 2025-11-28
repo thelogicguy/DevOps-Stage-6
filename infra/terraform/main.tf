@@ -168,8 +168,8 @@ resource "null_resource" "wait_for_instance" {
     user        = var.ssh_user
     private_key = file(var.ssh_private_key_path)
     # Use the public IP from the EIP resource
-    host        = aws_eip.app_server.public_ip 
-    timeout     = "10" # Terraform will retry connection for up to 10 minutes
+    host        = aws_eip.app_server.public_ip
+    timeout     = "10m" # Terraform will retry connection for up to 10 minutes
   }
 
   # === Remote-Exec: The actual command to run on the instance ===
@@ -198,6 +198,14 @@ resource "null_resource" "run_ansible" {
   provisioner "local-exec" {
     command     = "ansible-playbook -i inventory/hosts playbook.yml"
     working_dir = "${path.module}/../ansible"
+    environment = {
+      DOMAIN           = var.domain
+      CF_API_EMAIL     = var.cloudflare_email
+      CF_DNS_API_TOKEN = var.cloudflare_api_token
+      JWT_SECRET       = var.jwt_secret
+      APP_REPO_URL     = var.app_repo_url
+      APP_REPO_BRANCH  = var.app_repo_branch
+    }
   }
 
   depends_on = [
