@@ -18,6 +18,14 @@ http:
       tls:
         certResolver: cloudflare
 
+    login:
+      rule: "Host(`thelogicguy-leap.xyz`) && Path(`/login`)"
+      service: auth
+      entryPoints:
+        - https
+      tls:
+        certResolver: cloudflare
+
     todos:
       rule: "Host(`thelogicguy-leap.xyz`) && PathPrefix(`/api/todos`)"
       service: todos
