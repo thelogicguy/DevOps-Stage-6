@@ -68,12 +68,12 @@ http:
     todos-stripprefix:
       stripPrefix:
         prefixes:
-          - "/api/todos"
+          - "/api"
 
     users-stripprefix:
       stripPrefix:
         prefixes:
-          - "/api/users"
+          - "/api"
 
     secureHeaders:
       headers:
