@@ -87,8 +87,7 @@ http:
         servers:
           - url: "http://users-api:8081"
 
-    
-middlewares:
+  middlewares:
     secureHeaders:
       headers:
         sslRedirect: true
