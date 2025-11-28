@@ -89,13 +89,69 @@ jobs:
           terraform show -no-color tfplan >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
 
+          # Save plan details for email
+          terraform show -no-color tfplan > plan-output.txt
+
+      - name: Upload Plan Output
+        if: steps.plan.outputs.has_changes == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: plan-output
+          path: infra/terraform/plan-output.txt
+          retention-days: 5
+
   send-drift-notification:
     name: Send Drift Detection Email
     runs-on: ubuntu-latest
     needs: terraform-plan
     if: needs.terraform-plan.outputs.has_changes == 'true'
-    
+
     steps:
+      - name: Download Plan Output
+        uses: actions/download-artifact@v4
+        with:
+          name: plan-output
+
+      - name: Prepare email body
+        run: |
+          cat > email-body.txt <<EOF
+          ⚠️ TERRAFORM DRIFT DETECTED - ACTION REQUIRED ⚠️
+
+          Configuration drift has been detected in your infrastructure!
+
+          📋 DETAILS:
+          Repository: ${{ github.repository }}
+          Branch: ${{ github.ref_name }}
+          Commit: ${{ github.sha }}
+          Triggered by: ${{ github.actor }}
+
+          📝 DETECTED CHANGES:
+          ═══════════════════════════════════════════════════════════
+          EOF
+
+          cat plan-output.txt >> email-body.txt
+
+          cat >> email-body.txt <<EOF
+
+          ═══════════════════════════════════════════════════════════
+
+          🔐 APPROVAL REQUIRED:
+          These changes require your manual approval before they can be applied.
+
+          TO APPROVE:
+          1. Visit: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          2. Click on "Review deployments"
+          3. Select the "production" environment
+          4. Click "Approve and deploy"
+
+          ⚠️ IMPORTANT:
+          - Review the changes above carefully before approving
+          - If you did not expect these changes, investigate immediately
+          - Once approved, Terraform will automatically apply the changes
+
+          Need help? Check the workflow logs for more details.
+          EOF
+
       - name: Send email notification
         uses: dawidd6/action-send-mail@v3
         with:
@@ -106,22 +162,7 @@ jobs:
           subject: "⚠️ Terraform Drift Detected - Approval Required"
           to: ${{ secrets.NOTIFICATION_EMAIL }}
           from: "DevOps CI/CD <${{ secrets.EMAIL_USERNAME }}>"
-          body: |
-            Terraform drift has been detected in your infrastructure!
-            
-            Repository: ${{ github.repository }}
-            Branch: ${{ github.ref_name }}
-            Commit: ${{ github.sha }}
-            Triggered by: ${{ github.actor }}
-            
-            Changes have been detected and require your approval before applying.
-            
-            Please review the plan at:
-            ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-            
-            To approve and apply changes, go to the workflow and approve the deployment.
-            
-            If you did not expect these changes, please investigate immediately.
+          body: file://email-body.txt
 
   await-approval:
     name: Wait for Manual Approval
