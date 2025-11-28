@@ -59,8 +59,8 @@ jobs:
           TF_VAR_cloudflare_api_token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           TF_VAR_jwt_secret: ${{ secrets.JWT_SECRET }}
           TF_VAR_domain: ${{ secrets.DOMAIN }}
-          TF_VAR_ssh_public_key_path: ${{ secrets.SSH_PUBLIC_KEY_PATH }}
-          TF_VAR_ssh_private_key_path: ${{ secrets.SSH_PRIVATE_KEY_PATH }}
+          TF_VAR_ssh_public_key: ${{ secrets.SSH_PUBLIC_KEY }}
+          TF_VAR_ssh_private_key_path: "/tmp/dummy"
         run: |
           set +e
           terraform plan -input=false -detailed-exitcode -out=tfplan

@@ -31,11 +31,26 @@ variable "ssh_user" {
 variable "ssh_public_key_path" {
   description = "Path to SSH public key"
   type        = string
+  default     = ""
 }
 
 variable "ssh_private_key_path" {
   description = "Path to SSH private key"
   type        = string
+  default     = ""
+}
+
+variable "ssh_public_key" {
+  description = "SSH public key content (for CI/CD)"
+  type        = string
+  default     = ""
+}
+
+variable "ssh_private_key" {
+  description = "SSH private key content (for CI/CD)"
+  type        = string
+  default     = ""
+  sensitive   = true
 }
 
 variable "ssh_allowed_ips" {
