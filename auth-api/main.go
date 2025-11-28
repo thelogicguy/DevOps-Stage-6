@@ -63,6 +63,10 @@ func main() {
 	e.Use(middleware.CORS())
 
 	// Route => handler
+	e.GET("/", func(c echo.Context) error {
+		return c.JSON(http.StatusOK, map[string]string{"status": "ok", "service": "auth-api"})
+	})
+
 	e.GET("/version", func(c echo.Context) error {
 		return c.String(http.StatusOK, "Auth API, written in Go\n")
 	})
