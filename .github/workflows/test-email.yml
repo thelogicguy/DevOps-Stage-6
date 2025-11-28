@@ -31,13 +31,14 @@ jobs:
         with:
           server_address: smtp.mail.yahoo.com
           server_port: 587
-          secure: true
           username: ${{ secrets.YAHOO_EMAIL_USERNAME }}
           password: ${{ secrets.YAHOO_EMAIL_PASSWORD }}
           subject: "Test - DevOps Email Notification"
           to: ${{ secrets.YAHOO_NOTIFICATION_EMAIL }}
           from: ${{ secrets.YAHOO_EMAIL_USERNAME }}
           body: file://./test-email.txt
+          ignore_cert: true
+          convert_markdown: false
 
       - name: Report success
         run: |
