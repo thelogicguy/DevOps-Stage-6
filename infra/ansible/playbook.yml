@@ -1,0 +1,55 @@
+---
+- name: Deploy TODO Application
+  hosts: app_servers
+  become: true
+  gather_facts: true
+
+  vars:
+    app_repo_url: "https://github.com/thelogicguy/DevOps-Stage-6.git"
+    app_repo_branch: "main"
+    app_directory: "/opt/todo-app"
+    docker_compose_version: "2.23.0"
+
+  pre_tasks:
+    - name: Wait for system to become reachable
+      wait_for_connection:
+        timeout: 300
+
+    - name: Update apt cache
+      apt:
+        update_cache: yes
+        cache_valid_time: 3600
+
+  roles:
+    - dependencies
+    - deploy
+
+  post_tasks:
+    - name: Verify services are running
+      command: docker compose ps
+      args:
+        chdir: "{{ app_directory }}"
+      register: compose_status
+      changed_when: false
+
+    - name: Display service status
+      debug:
+        var: compose_status.stdout_lines
+
+    - name: Wait for services to be healthy
+      command: docker compose ps --format json
+      args:
+        chdir: "{{ app_directory }}"
+      register: health_check
+      until: health_check.stdout is search('"Health":"healthy"')
+      retries: 30
+      delay: 10
+      changed_when: false
+      failed_when: false
+
+    - name: Display deployment summary
+      debug:
+        msg:
+          - "Deployment completed successfully!"
+          - "Application URL: https://{{ lookup('env', 'DOMAIN') }}"
+          - "Services status: {{ compose_status.stdout_lines }}"

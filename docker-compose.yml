@@ -1,0 +1,197 @@
+version: '3.8'
+
+services:
+  traefik:
+    image: traefik:v2.10
+    container_name: traefik
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./traefik/traefik.yml:/traefik.yml:ro
+      - ./traefik/acme.json:/acme.json
+      - ./traefik/config.yml:/config.yml:ro
+    environment:
+      - CF_API_EMAIL=${CF_API_EMAIL}
+      - CF_DNS_API_TOKEN=${CF_DNS_API_TOKEN}
+    networks:
+      - web
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.traefik.entrypoints=http"
+      - "traefik.http.routers.traefik.rule=Host(`traefik.${DOMAIN}`)"
+      - "traefik.http.middlewares.traefik-https-redirect.redirectscheme.scheme=https"
+      - "traefik.http.routers.traefik.middlewares=traefik-https-redirect"
+      - "traefik.http.routers.traefik-secure.entrypoints=https"
+      - "traefik.http.routers.traefik-secure.rule=Host(`traefik.${DOMAIN}`)"
+      - "traefik.http.routers.traefik-secure.tls=true"
+      - "traefik.http.routers.traefik-secure.tls.certresolver=cloudflare"
+
+  redis-queue:
+    image: redis:7-alpine
+    container_name: redis-queue
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - backend
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: frontend
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production
+      - PORT=${PORT:-8080}
+      - AUTH_API_ADDRESS=${AUTH_API_ADDRESS:-http://auth-api:8081}
+      - TODOS_API_ADDRESS=${TODOS_API_ADDRESS:-http://todos-api:8082}
+    networks:
+      - web
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.frontend.entrypoints=http"
+      - "traefik.http.routers.frontend.rule=Host(`${DOMAIN}`)"
+      - "traefik.http.middlewares.frontend-https-redirect.redirectscheme.scheme=https"
+      - "traefik.http.routers.frontend.middlewares=frontend-https-redirect"
+      - "traefik.http.routers.frontend-secure.entrypoints=https"
+      - "traefik.http.routers.frontend-secure.rule=Host(`${DOMAIN}`)"
+      - "traefik.http.routers.frontend-secure.tls=true"
+      - "traefik.http.routers.frontend-secure.tls.certresolver=cloudflare"
+      - "traefik.http.routers.frontend-secure.service=frontend"
+      - "traefik.http.services.frontend.loadbalancer.server.port=8080"
+    depends_on:
+      - auth-api
+      - todos-api
+      - users-api
+
+  auth-api:
+    build:
+      context: ./auth-api
+      dockerfile: Dockerfile
+    container_name: auth-api
+    restart: unless-stopped
+    environment:
+      - PORT=8080
+      - REDIS_HOST=${REDIS_HOST:-redis-queue}
+      - REDIS_PORT=${REDIS_PORT:-6379}
+      - JWT_SECRET=${JWT_SECRET}
+    networks:
+      - web
+      - backend
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.auth.entrypoints=http"
+      - "traefik.http.routers.auth.rule=Host(`${DOMAIN}`) && PathPrefix(`/api/auth`)"
+      - "traefik.http.middlewares.auth-https-redirect.redirectscheme.scheme=https"
+      - "traefik.http.routers.auth.middlewares=auth-https-redirect"
+      - "traefik.http.routers.auth-secure.entrypoints=https"
+      - "traefik.http.routers.auth-secure.rule=Host(`${DOMAIN}`) && PathPrefix(`/api/auth`)"
+      - "traefik.http.routers.auth-secure.tls=true"
+      - "traefik.http.routers.auth-secure.tls.certresolver=cloudflare"
+      - "traefik.http.routers.auth-secure.service=auth"
+      - "traefik.http.services.auth.loadbalancer.server.port=8080"
+      - "traefik.http.middlewares.auth-stripprefix.stripprefix.prefixes=/api/auth"
+      - "traefik.http.routers.auth-secure.middlewares=auth-stripprefix"
+    depends_on:
+      - redis-queue
+
+  todos-api:
+    build:
+      context: ./todos-api
+      dockerfile: Dockerfile
+    container_name: todos-api
+    restart: unless-stopped
+    environment:
+      - PORT=3000
+      - REDIS_HOST=${REDIS_HOST:-redis-queue}
+      - REDIS_PORT=${REDIS_PORT:-6379}
+      - REDIS_CHANNEL=${REDIS_CHANNEL:-log_channel}
+      - JWT_SECRET=${JWT_SECRET}
+    networks:
+      - web
+      - backend
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.todos.entrypoints=http"
+      - "traefik.http.routers.todos.rule=Host(`${DOMAIN}`) && PathPrefix(`/api/todos`)"
+      - "traefik.http.middlewares.todos-https-redirect.redirectscheme.scheme=https"
+      - "traefik.http.routers.todos.middlewares=todos-https-redirect"
+      - "traefik.http.routers.todos-secure.entrypoints=https"
+      - "traefik.http.routers.todos-secure.rule=Host(`${DOMAIN}`) && PathPrefix(`/api/todos`)"
+      - "traefik.http.routers.todos-secure.tls=true"
+      - "traefik.http.routers.todos-secure.tls.certresolver=cloudflare"
+      - "traefik.http.routers.todos-secure.service=todos"
+      - "traefik.http.services.todos.loadbalancer.server.port=3000"
+      - "traefik.http.middlewares.todos-stripprefix.stripprefix.prefixes=/api/todos"
+      - "traefik.http.routers.todos-secure.middlewares=todos-stripprefix"
+    depends_on:
+      - redis-queue
+
+  users-api:
+    build:
+      context: ./users-api
+      dockerfile: Dockerfile
+    container_name: users-api
+    restart: unless-stopped
+    environment:
+      - SERVER_PORT=8081
+      - SPRING_REDIS_HOST=redis
+      - SPRING_REDIS_PORT=6379
+      - JWT_SECRET=${JWT_SECRET}
+    networks:
+      - web
+      - backend
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.users.entrypoints=http"
+      - "traefik.http.routers.users.rule=Host(`${DOMAIN}`) && PathPrefix(`/api/users`)"
+      - "traefik.http.middlewares.users-https-redirect.redirectscheme.scheme=https"
+      - "traefik.http.routers.users.middlewares=users-https-redirect"
+      - "traefik.http.routers.users-secure.entrypoints=https"
+      - "traefik.http.routers.users-secure.rule=Host(`${DOMAIN}`) && PathPrefix(`/api/users`)"
+      - "traefik.http.routers.users-secure.tls=true"
+      - "traefik.http.routers.users-secure.tls.certresolver=cloudflare"
+      - "traefik.http.routers.users-secure.service=users"
+      - "traefik.http.services.users.loadbalancer.server.port=8081"
+      - "traefik.http.middlewares.users-stripprefix.stripprefix.prefixes=/api/users"
+      - "traefik.http.routers.users-secure.middlewares=users-stripprefix"
+    depends_on:
+      - redis
+
+  log-processor:
+    build:
+      context: ./log-processor
+      dockerfile: Dockerfile
+    container_name: log-processor
+    restart: unless-stopped
+    environment:
+      - REDIS_HOST=${REDIS_HOST:-redis-queue}
+      - REDIS_PORT=${REDIS_PORT:-6379}
+      - REDIS_CHANNEL=${REDIS_CHANNEL:-log_channel}
+      - LOG_LEVEL=INFO
+    networks:
+      - backend
+    depends_on:
+      - redis-queue
+
+networks:
+  web:
+    external: false
+  backend:
+    external: false
+
+volumes:
+  redis_data:

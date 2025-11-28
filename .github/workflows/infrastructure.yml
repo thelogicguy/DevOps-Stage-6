@@ -1,0 +1,222 @@
+name: Infrastructure Deployment
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'infra/terraform/**'
+      - 'infra/ansible/**'
+      - '.github/workflows/infrastructure.yml'
+  workflow_dispatch:
+
+env:
+  TF_VERSION: '1.5.0'
+  AWS_REGION: 'us-east-1'
+
+jobs:
+  terraform-plan:
+    name: Terraform Plan & Drift Detection
+    runs-on: ubuntu-latest
+    outputs:
+      has_changes: ${{ steps.plan.outputs.has_changes }}
+      plan_exitcode: ${{ steps.plan.outputs.exitcode }}
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Terraform Init
+        working-directory: ./infra/terraform
+        run: terraform init
+
+      - name: Terraform Validate
+        working-directory: ./infra/terraform
+        run: terraform validate
+
+      - name: Terraform Plan
+        id: plan
+        working-directory: ./infra/terraform
+        run: |
+          terraform plan -detailed-exitcode -out=tfplan || export exitcode=$?
+          echo "exitcode=$exitcode" >> $GITHUB_OUTPUT
+          
+          if [ $exitcode -eq 1 ]; then
+            echo "Terraform plan failed"
+            exit 1
+          elif [ $exitcode -eq 2 ]; then
+            echo "has_changes=true" >> $GITHUB_OUTPUT
+            echo "Drift detected - changes required"
+          else
+            echo "has_changes=false" >> $GITHUB_OUTPUT
+            echo "No changes detected - infrastructure is in sync"
+          fi
+
+      - name: Upload Terraform Plan
+        if: steps.plan.outputs.has_changes == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: tfplan
+          path: infra/terraform/tfplan
+          retention-days: 5
+
+      - name: Generate Plan Summary
+        if: steps.plan.outputs.has_changes == 'true'
+        working-directory: ./infra/terraform
+        run: |
+          echo "## Terraform Plan Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Drift detected! The following changes are planned:" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          terraform show -no-color tfplan >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+
+  send-drift-notification:
+    name: Send Drift Detection Email
+    runs-on: ubuntu-latest
+    needs: terraform-plan
+    if: needs.terraform-plan.outputs.has_changes == 'true'
+    
+    steps:
+      - name: Send email notification
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.gmail.com
+          server_port: 587
+          username: ${{ secrets.EMAIL_USERNAME }}
+          password: ${{ secrets.EMAIL_PASSWORD }}
+          subject: "⚠️ Terraform Drift Detected - Approval Required"
+          to: ${{ secrets.NOTIFICATION_EMAIL }}
+          from: "DevOps CI/CD <${{ secrets.EMAIL_USERNAME }}>"
+          body: |
+            Terraform drift has been detected in your infrastructure!
+            
+            Repository: ${{ github.repository }}
+            Branch: ${{ github.ref_name }}
+            Commit: ${{ github.sha }}
+            Triggered by: ${{ github.actor }}
+            
+            Changes have been detected and require your approval before applying.
+            
+            Please review the plan at:
+            ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+            
+            To approve and apply changes, go to the workflow and approve the deployment.
+            
+            If you did not expect these changes, please investigate immediately.
+
+  await-approval:
+    name: Wait for Manual Approval
+    runs-on: ubuntu-latest
+    needs: [terraform-plan, send-drift-notification]
+    if: needs.terraform-plan.outputs.has_changes == 'true'
+    
+    steps:
+      - name: Manual approval checkpoint
+        run: |
+          echo "Waiting for manual approval..."
+          echo "This step requires approval in GitHub Actions environment"
+
+  terraform-apply:
+    name: Terraform Apply
+    runs-on: ubuntu-latest
+    needs: [terraform-plan, await-approval]
+    if: always() && needs.terraform-plan.result == 'success'
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Terraform Init
+        working-directory: ./infra/terraform
+        run: terraform init
+
+      - name: Download Terraform Plan
+        if: needs.terraform-plan.outputs.has_changes == 'true'
+        uses: actions/download-artifact@v4
+        with:
+          name: tfplan
+          path: infra/terraform/
+
+      - name: Terraform Apply
+        working-directory: ./infra/terraform
+        env:
+          TF_VAR_cloudflare_email: ${{ secrets.CLOUDFLARE_EMAIL }}
+          TF_VAR_cloudflare_api_token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          TF_VAR_jwt_secret: ${{ secrets.JWT_SECRET }}
+          TF_VAR_domain: ${{ secrets.DOMAIN }}
+          TF_VAR_ssh_public_key_path: ${{ secrets.SSH_PUBLIC_KEY_PATH }}
+          TF_VAR_ssh_private_key_path: ${{ secrets.SSH_PRIVATE_KEY_PATH }}
+        run: |
+          if [ "${{ needs.terraform-plan.outputs.has_changes }}" == "true" ]; then
+            terraform apply tfplan
+          else
+            echo "No changes to apply"
+            terraform apply -auto-approve
+          fi
+
+      - name: Send success notification
+        if: success()
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.gmail.com
+          server_port: 587
+          username: ${{ secrets.EMAIL_USERNAME }}
+          password: ${{ secrets.EMAIL_PASSWORD }}
+          subject: "✅ Terraform Apply Successful"
+          to: ${{ secrets.NOTIFICATION_EMAIL }}
+          from: "DevOps CI/CD <${{ secrets.EMAIL_USERNAME }}>"
+          body: |
+            Terraform apply completed successfully!
+            
+            Repository: ${{ github.repository }}
+            Branch: ${{ github.ref_name }}
+            Commit: ${{ github.sha }}
+            
+            Infrastructure is now up to date.
+
+      - name: Send failure notification
+        if: failure()
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.gmail.com
+          server_port: 587
+          username: ${{ secrets.EMAIL_USERNAME }}
+          password: ${{ secrets.EMAIL_PASSWORD }}
+          subject: "❌ Terraform Apply Failed"
+          to: ${{ secrets.NOTIFICATION_EMAIL }}
+          from: "DevOps CI/CD <${{ secrets.EMAIL_USERNAME }}>"
+          body: |
+            Terraform apply failed!
+            
+            Repository: ${{ github.repository }}
+            Branch: ${{ github.ref_name }}
+            Commit: ${{ github.sha }}
+            
+            Please check the logs at:
+            ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
