@@ -207,16 +207,30 @@ resource "null_resource" "run_ansible" {
   }
 
   provisioner "local-exec" {
-    command     = "ansible-playbook -i inventory/hosts playbook.yml"
     working_dir = "${path.module}/../ansible"
+
     environment = {
-      DOMAIN           = var.domain
-      CF_API_EMAIL     = var.cloudflare_email
-      CF_DNS_API_TOKEN = var.cloudflare_api_token
-      JWT_SECRET       = var.jwt_secret
-      APP_REPO_URL     = var.app_repo_url
-      APP_REPO_BRANCH  = var.app_repo_branch
+      DOMAIN                     = var.domain
+      CF_API_EMAIL               = var.cloudflare_email
+      CF_DNS_API_TOKEN           = var.cloudflare_api_token
+      JWT_SECRET                 = var.jwt_secret
+      APP_REPO_URL               = var.app_repo_url
+      APP_REPO_BRANCH            = var.app_repo_branch
+      ANSIBLE_HOST_KEY_CHECKING  = "False"
+      PRIVATE_KEY                = var.ssh_private_key
     }
+
+    command = <<EOT
+      # Write the private key for SSH
+      echo "$PRIVATE_KEY" > key.pem
+      chmod 600 key.pem
+
+      # Make sure the inventory has the correct user
+      sed -i 's/$/ ansible_user=ubuntu/' inventory/hosts
+
+      # Run the playbook with the private key
+      ansible-playbook -i inventory/hosts playbook.yml --private-key key.pem
+    EOT
   }
 
   depends_on = [
