@@ -202,7 +202,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     needs: [terraform-plan, await-approval]
-    if: always() && needs.terraform-plan.result == 'success'
+    if: |
+      always() &&
+      needs.terraform-plan.result == 'success' &&
+      (needs.terraform-plan.outputs.has_changes == 'false' || needs.await-approval.result == 'success')
 
     steps:
       - name: Checkout code
