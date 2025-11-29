@@ -52,6 +52,7 @@ jobs:
             echo "## ⚠️ Application Changes Detected" >> $GITHUB_STEP_SUMMARY
           else
             echo "## ✅ No Application Changes" >> $GITHUB_STEP_SUMMARY
+          fi
 
   send-drift-notification:
     name: Send Change Notification
