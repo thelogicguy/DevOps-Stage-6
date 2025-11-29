@@ -8,6 +8,9 @@ on:
       - 'infra/terraform/**'
       - 'infra/ansible/**'
       - '.github/workflows/infrastructure.yml'
+  schedule:
+    # Run drift detection every minute
+    - cron: '* * * * *'
   workflow_dispatch:
 
 # Prevent concurrent terraform runs
