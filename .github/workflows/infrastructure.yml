@@ -142,16 +142,26 @@ jobs:
           echo "" >> drift-email.txt
           echo "⚠️ WARNING: If you did not expect these changes, investigate immediately!" >> drift-email.txt
 
+      - name: Prepare plan artifacts
+        if: steps.plan.outputs.exitcode == '2'
+        working-directory: ./infra/terraform
+        run: |
+          cp tfplan ../../tfplan
+          cp drift-report.md ../../drift-report.md
+          cp drift-email.txt ../../drift-email.txt
+
       - name: Upload Terraform Plan
         if: steps.plan.outputs.exitcode == '2'
         uses: actions/upload-artifact@v4
         with:
           name: tfplan-${{ github.run_id }}
           path: |
-            infra/terraform/tfplan
-            infra/terraform/drift-report.md
-            infra/terraform/drift-email.txt
+            tfplan
+            drift-report.md
+            drift-email.txt
           retention-days: 7
+
+
 
       - name: Comment on PR
         if: steps.plan.outputs.exitcode == '2' && github.event_name == 'push'
