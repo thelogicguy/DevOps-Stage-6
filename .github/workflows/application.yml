@@ -14,6 +14,12 @@ on:
       - '.env.example'
       - '.github/workflows/application.yml'
   workflow_dispatch:
+    inputs:
+      force_apply:
+        description: 'Force deploy without approval'
+        required: false
+        type: boolean
+        default: false
 
 jobs:
   check-changes:
@@ -39,12 +45,68 @@ jobs:
             echo "No application changes detected"
           fi
 
-  deploy:
-    name: Deploy Application
+      - name: Step summary
+        if: always()
+        run: |
+          if [ "${{ steps.check.outputs.has_changes }}" == "true" ]; then
+            echo "## ⚠️ Application Changes Detected" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "## ✅ No Application Changes" >> $GITHUB_STEP_SUMMARY
+
+  send-drift-notification:
+    name: Send Change Notification
     runs-on: ubuntu-latest
     needs: check-changes
     if: needs.check-changes.outputs.has_changes == 'true'
-    
+    steps:
+      - name: Prepare drift email
+        run: |
+          echo "APPLICATION CHANGES DETECTED - ACTION REQUIRED" > drift-email.txt
+          echo "" >> drift-email.txt
+          echo "Repository: ${{ github.repository }}" >> drift-email.txt
+          echo "Branch: ${{ github.ref_name }}" >> drift-email.txt
+          echo "Commit: ${{ github.sha }}" >> drift-email.txt
+          echo "Triggered by: ${{ github.actor }}" >> drift-email.txt
+          echo "Time: $(date -u)" >> drift-email.txt
+          echo "" >> drift-email.txt
+          echo "Manual approval is required before deploying these changes." >> drift-email.txt
+          echo "" >> drift-email.txt
+          echo "View GitHub Actions run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" >> drift-email.txt
+
+      - name: Send Email Alert
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.gmail.com
+          server_port: 587
+          username: ${{ secrets.EMAIL_USERNAME }}
+          password: ${{ secrets.EMAIL_PASSWORD }}
+          subject: "⚠️ Application Changes Detected - ${{ github.repository }}"
+          to: ${{ secrets.NOTIFICATION_EMAIL }}
+          from: "DevOps CI/CD <${{ secrets.EMAIL_USERNAME }}>"
+          body: file://./drift-email.txt
+          priority: high
+
+  await-approval:
+    name: Await Manual Approval
+    runs-on: ubuntu-latest
+    needs: send-drift-notification
+    if: github.event.inputs.force_apply != 'true'
+    environment:
+      name: production
+    steps:
+      - name: Approval Checkpoint
+        run: |
+          echo "✅ Manual approval received"
+          echo "Proceeding with application deployment..."
+
+  deploy:
+    name: Deploy Application
+    runs-on: ubuntu-latest
+    needs: [check-changes, await-approval]
+    if: |
+      needs.check-changes.outputs.has_changes == 'true' ||
+      github.event.inputs.force_apply == 'true'
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -71,25 +133,20 @@ jobs:
           echo "server_ip=${SERVER_IP}" >> $GITHUB_OUTPUT
           echo "Server IP: ${SERVER_IP}"
 
-      - name: Setup SSH
+      - name: Prepare directories for Ansible artifacts
         run: |
-          mkdir -p ~/.ssh
-          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
-          chmod 600 ~/.ssh/id_rsa
-          ssh-keyscan -H ${{ steps.get_ip.outputs.server_ip }} >> ~/.ssh/known_hosts
-
-      - name: Install Ansible
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y ansible
+          mkdir -p infra/ansible/inventory
+          mkdir -p infra/ansible/logs
+          mkdir -p infra/ansible/keys
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > infra/ansible/keys/id_rsa
+          chmod 600 infra/ansible/keys/id_rsa
 
       - name: Create Ansible inventory
         run: |
-          mkdir -p infra/ansible/inventory
           cat > infra/ansible/inventory/hosts <<EOF
           [app_servers]
-          app-server ansible_host=${{ steps.get_ip.outputs.server_ip }} ansible_user=ubuntu ansible_ssh_private_key_file=~/.ssh/id_rsa
-          
+          app-server ansible_host=${{ steps.get_ip.outputs.server_ip }} ansible_user=ubuntu ansible_ssh_private_key_file=infra/ansible/keys/id_rsa
+
           [app_servers:vars]
           ansible_python_interpreter=/usr/bin/python3
           EOF
@@ -101,27 +158,50 @@ jobs:
           echo "CF_DNS_API_TOKEN=${{ secrets.CLOUDFLARE_API_TOKEN }}" >> $GITHUB_ENV
           echo "JWT_SECRET=${{ secrets.JWT_SECRET }}" >> $GITHUB_ENV
 
-      - name: Run Ansible deployment
+      - name: Install Ansible
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ansible
+
+      - name: Run Ansible deployment with retries
         working-directory: ./infra/ansible
         run: |
-          ansible-playbook -i inventory/hosts playbook.yml \
-            -e "app_repo_url=https://github.com/${{ github.repository }}.git" \
-            -e "app_repo_branch=${{ github.ref_name }}"
-
-      - name: Verify deployment
-        run: |
-          echo "Waiting for services to stabilize..."
-          sleep 30
-          
-          # Check if domain is accessible
-          response=$(curl -s -o /dev/null -w "%{http_code}" https://${{ secrets.DOMAIN }} || echo "000")
-          
-          if [ "$response" == "200" ] || [ "$response" == "301" ] || [ "$response" == "302" ]; then
-            echo "✅ Application is accessible"
-          else
-            echo "⚠️ Application returned status code: $response"
+          MAX_RETRIES=3
+          for i in $(seq 1 $MAX_RETRIES); do
+            ansible-playbook -i inventory/hosts playbook.yml \
+              -e "app_repo_url=https://github.com/${{ github.repository }}.git" \
+              -e "app_repo_branch=${{ github.ref_name }}" \
+              | tee logs/deployment.log && break
+            echo "Retry $i/$MAX_RETRIES failed, waiting 10s..."
+            sleep 10
+          done
+          if [ ${PIPESTATUS[0]} -ne 0 ]; then
+            echo "❌ Ansible deployment failed after $MAX_RETRIES retries"
             exit 1
           fi
+
+      - name: Upload Ansible logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ansible-logs-${{ github.run_id }}
+          path: infra/ansible/logs/
+          retention-days: 7
+
+      - name: Verify deployment with retries
+        run: |
+          MAX_RETRIES=5
+          for i in $(seq 1 $MAX_RETRIES); do
+            echo "Checking if application is accessible... Attempt $i/$MAX_RETRIES"
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" https://${{ secrets.DOMAIN }} || echo "000")
+            if [[ "$STATUS" == "200" || "$STATUS" == "301" || "$STATUS" == "302" ]]; then
+              echo "✅ Application is accessible"
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "❌ Application not accessible after $MAX_RETRIES attempts. Last status: $STATUS"
+          exit 1
 
       - name: Send success notification
         if: success()
@@ -136,15 +216,11 @@ jobs:
           from: "DevOps CI/CD <${{ secrets.EMAIL_USERNAME }}>"
           body: |
             Application deployment completed successfully!
-            
             Repository: ${{ github.repository }}
             Branch: ${{ github.ref_name }}
             Commit: ${{ github.sha }}
             Deployed by: ${{ github.actor }}
-            
             Application URL: https://${{ secrets.DOMAIN }}
-            
-            Services have been updated and are running.
 
       - name: Send failure notification
         if: failure()
@@ -159,10 +235,7 @@ jobs:
           from: "DevOps CI/CD <${{ secrets.EMAIL_USERNAME }}>"
           body: |
             Application deployment failed!
-            
             Repository: ${{ github.repository }}
             Branch: ${{ github.ref_name }}
             Commit: ${{ github.sha }}
-            
-            Please check the logs at:
-            ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+            Please check logs: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
