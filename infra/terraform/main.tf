@@ -108,7 +108,7 @@ resource "aws_key_pair" "deployer" {
   }
 }
 
-# EC2 Instance
+# EC2 Instance specification
 resource "aws_instance" "app_server" {
   ami           = data.aws_ami.ubuntu.id
   instance_type = var.instance_type
