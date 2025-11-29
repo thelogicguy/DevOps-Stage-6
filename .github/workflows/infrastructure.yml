@@ -260,6 +260,21 @@ jobs:
           terraform_version: ${{ env.TF_VERSION }}
           terraform_wrapper: false
 
+      - name: Setup SSH Keys
+        id: setup-ssh
+        run: |
+          mkdir -p $HOME/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > $HOME/.ssh/terraform-deploy-key
+          echo "${{ secrets.SSH_PUBLIC_KEY }}" > $HOME/.ssh/terraform-deploy-key.pub
+          chmod 600 $HOME/.ssh/terraform-deploy-key
+          chmod 644 $HOME/.ssh/terraform-deploy-key.pub
+          echo "ssh_private_key_path=$HOME/.ssh/terraform-deploy-key" >> $GITHUB_OUTPUT
+          echo "ssh_public_key_path=$HOME/.ssh/terraform-deploy-key.pub" >> $GITHUB_OUTPUT
+
+      - name: Setup Ansible
+        run: |
+          pip install ansible
+
       - name: Terraform Init
         working-directory: ./infra/terraform
         run: terraform init -input=false
@@ -278,6 +293,8 @@ jobs:
           TF_VAR_cloudflare_email: ${{ secrets.CLOUDFLARE_EMAIL }}
           TF_VAR_cloudflare_api_token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           TF_VAR_jwt_secret: ${{ secrets.JWT_SECRET }}
+          TF_VAR_ssh_private_key_path: ${{ steps.setup-ssh.outputs.ssh_private_key_path }}
+          TF_VAR_ssh_public_key_path: ${{ steps.setup-ssh.outputs.ssh_public_key_path }}
           TF_IN_AUTOMATION: "true"
         run: |
           if [ "${{ needs.terraform-plan.outputs.has_changes }}" == "true" ]; then
