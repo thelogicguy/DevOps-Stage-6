@@ -73,31 +73,32 @@ jobs:
           TF_VAR_jwt_secret: ${{ secrets.JWT_SECRET }}
           TF_IN_AUTOMATION: "true"
         run: |
-          # Run terraform plan with -detailed-exitcode and capture the exit code
-          # The | tee plan.log sends output to log file AND stdout
-          terraform plan -input=false -detailed-exitcode -out=tfplan 2>&1 | tee plan.log
-          exitcode=$? # Capture the exit code of the last command (terraform plan)
-
+          set -o pipefail
+          set +e
+          
+          # run plan and preserve exit code
+          terraform plan -input=false -detailed-exitcode -out=tfplan \
+            2>&1 | tee plan.log
+          
+          exitcode=${PIPESTATUS[0]}
+          
+          set -e
+          
           echo "exitcode=$exitcode" >> $GITHUB_OUTPUT
-          
-          echo "=== Terraform Plan Exit Code: $exitcode ==="
-          
+
           if [ $exitcode -eq 0 ]; then
             echo "has_changes=false" >> $GITHUB_OUTPUT
-            echo "✅ No changes - Infrastructure matches configuration"
+            echo "No changes."
           elif [ $exitcode -eq 1 ]; then
-            echo "❌ Terraform plan failed with error"
-            cat plan.log
-            # Explicitly exit 1 to fail the GitHub Actions step
-            exit 1 
+            echo "Terraform plan failed."
+            exit 1
           elif [ $exitcode -eq 2 ]; then
             echo "has_changes=true" >> $GITHUB_OUTPUT
-            echo "⚠️ DRIFT DETECTED - Changes required!"
-            echo ""
-            echo "=== Planned Changes ==="
+            echo "DRIFT DETECTED!"
             terraform show -no-color tfplan | head -100
           fi
-          
+
+
       - name: Save Plan Details
         if: steps.plan.outputs.exitcode == '2'
         working-directory: ./infra/terraform
