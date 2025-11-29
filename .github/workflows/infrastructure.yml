@@ -146,9 +146,9 @@ jobs:
         if: steps.plan.outputs.exitcode == '2'
         working-directory: ./infra/terraform
         run: |
-          cp tfplan ../../tfplan
-          cp drift-report.md ../../drift-report.md
-          cp drift-email.txt ../../drift-email.txt
+         cp tfplan $GITHUB_WORKSPACE/
+         cp drift-report.md $GITHUB_WORKSPACE/
+         cp drift-email.txt $GITHUB_WORKSPACE/
 
       - name: Upload Terraform Plan
         if: steps.plan.outputs.exitcode == '2'
@@ -160,8 +160,6 @@ jobs:
             drift-report.md
             drift-email.txt
           retention-days: 7
-
-
 
       - name: Comment on PR
         if: steps.plan.outputs.exitcode == '2' && github.event_name == 'push'
