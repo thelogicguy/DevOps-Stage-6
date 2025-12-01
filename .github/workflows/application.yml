@@ -77,13 +77,14 @@ jobs:
       - name: Send Email Alert
         uses: dawidd6/action-send-mail@v3
         with:
-          server_address: smtp.gmail.com
+          server_address: smtp.mail.yahoo.com
           server_port: 587
-          username: ${{ secrets.EMAIL_USERNAME }}
-          password: ${{ secrets.EMAIL_PASSWORD }}
+          secure: false
+          username: ${{ secrets.YAHOO_EMAIL_USERNAME }}
+          password: ${{ secrets.YAHOO_EMAIL_PASSWORD }}
           subject: "⚠️ Application Changes Detected - ${{ github.repository }}"
-          to: ${{ secrets.NOTIFICATION_EMAIL }}
-          from: "DevOps CI/CD <${{ secrets.EMAIL_USERNAME }}>"
+          to: ${{ secrets.YAHOO_NOTIFICATION_EMAIL }}
+          from: "DevOps CI/CD <${{ secrets.YAHOO_EMAIL_USERNAME }}>"
           body: file://./drift-email.txt
           priority: high
 
@@ -208,13 +209,14 @@ jobs:
         if: success()
         uses: dawidd6/action-send-mail@v3
         with:
-          server_address: smtp.gmail.com
+          server_address: smtp.mail.yahoo.com
           server_port: 587
-          username: ${{ secrets.EMAIL_USERNAME }}
-          password: ${{ secrets.EMAIL_PASSWORD }}
+          secure: false
+          username: ${{ secrets.YAHOO_EMAIL_USERNAME }}
+          password: ${{ secrets.YAHOO_EMAIL_PASSWORD }}
           subject: "✅ Application Deployed Successfully"
-          to: ${{ secrets.NOTIFICATION_EMAIL }}
-          from: "DevOps CI/CD <${{ secrets.EMAIL_USERNAME }}>"
+          to: ${{ secrets.YAHOO_NOTIFICATION_EMAIL }}
+          from: "DevOps CI/CD <${{ secrets.YAHOO_EMAIL_USERNAME }}>"
           body: |
             Application deployment completed successfully!
             Repository: ${{ github.repository }}
@@ -227,13 +229,14 @@ jobs:
         if: failure()
         uses: dawidd6/action-send-mail@v3
         with:
-          server_address: smtp.gmail.com
+          server_address: smtp.mail.yahoo.com
           server_port: 587
-          username: ${{ secrets.EMAIL_USERNAME }}
-          password: ${{ secrets.EMAIL_PASSWORD }}
+          secure: false
+          username: ${{ secrets.YAHOO_EMAIL_USERNAME }}
+          password: ${{ secrets.YAHOO_EMAIL_PASSWORD }}
           subject: "❌ Application Deployment Failed"
-          to: ${{ secrets.NOTIFICATION_EMAIL }}
-          from: "DevOps CI/CD <${{ secrets.EMAIL_USERNAME }}>"
+          to: ${{ secrets.YAHOO_NOTIFICATION_EMAIL }}
+          from: "DevOps CI/CD <${{ secrets.YAHOO_EMAIL_USERNAME }}>"
           body: |
             Application deployment failed!
             Repository: ${{ github.repository }}
