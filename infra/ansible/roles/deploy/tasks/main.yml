@@ -28,7 +28,6 @@
     mode: '0755'
   become: true
 
-# --- FIX: Ensure application directory exists and is owned by the app user ---
 - name: Ensure application directory exists and is owned by the app user
   file:
     path: "{{ app_directory }}"
@@ -46,7 +45,6 @@
     version: "{{ app_repo_branch }}"
     force: no
     update: no
-  # FIX: Removed 'become_user: "{{ ansible_user }}"' because the directory is now owned by this user
   when: not git_repo.stat.exists
 
 - name: Pull latest changes (subsequent runs)
