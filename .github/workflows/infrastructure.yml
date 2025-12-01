@@ -201,7 +201,7 @@ jobs:
         uses: dawidd6/action-send-mail@v3
         with:
           server_address: smtp.mail.yahoo.com
-          server_port: 465
+          server_port: 587
           secure: true
           username: ${{ secrets.YAHOO_EMAIL_USERNAME }}
           password: ${{ secrets.YAHOO_EMAIL_PASSWORD }}
@@ -309,7 +309,7 @@ jobs:
         uses: dawidd6/action-send-mail@v3
         with:
           server_address: smtp.mail.yahoo.com
-          server_port: 465
+          server_port: 587
           secure: true
           username: ${{ secrets.YAHOO_EMAIL_USERNAME }}
           password: ${{ secrets.YAHOO_EMAIL_PASSWORD }}
@@ -318,15 +318,15 @@ jobs:
           from: ${{ secrets.YAHOO_EMAIL_USERNAME }}
           body: |
             Terraform apply completed successfully!
-            
+
             Repository: ${{ github.repository }}
             Branch: ${{ github.ref_name }}
             Commit: ${{ github.sha }}
             Applied by: ${{ github.actor }}
             Time: $(date -u)
-            
+
             Infrastructure is now synchronized with configuration.
-            
+
             View details: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
 
       - name: Send Failure Notification
@@ -334,7 +334,7 @@ jobs:
         uses: dawidd6/action-send-mail@v3
         with:
           server_address: smtp.mail.yahoo.com
-          server_port: 465
+          server_port: 587
           secure: true
           username: ${{ secrets.YAHOO_EMAIL_USERNAME }}
           password: ${{ secrets.YAHOO_EMAIL_PASSWORD }}
@@ -344,12 +344,12 @@ jobs:
           priority: high
           body: |
             ⚠️ TERRAFORM APPLY FAILED ⚠️
-            
+
             Repository: ${{ github.repository }}
             Branch: ${{ github.ref_name }}
             Commit: ${{ github.sha }}
-            
+
             Please check the logs immediately:
             ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-            
+
             Infrastructure may be in an inconsistent state!
