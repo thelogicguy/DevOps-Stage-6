@@ -133,7 +133,7 @@ resource "aws_instance" "app_server" {
   }
 
   lifecycle {
-    ignore_changes = [ami, user_data]
+    ignore_changes = [ami, user_data, root_block_device]
   }
 }
 
