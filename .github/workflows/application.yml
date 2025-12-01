@@ -54,57 +54,10 @@ jobs:
             echo "## ✅ No Application Changes" >> $GITHUB_STEP_SUMMARY
           fi
 
-  send-drift-notification:
-    name: Send Change Notification
-    runs-on: ubuntu-latest
-    needs: check-changes
-    if: needs.check-changes.outputs.has_changes == 'true'
-    steps:
-      - name: Prepare drift email
-        run: |
-          echo "APPLICATION CHANGES DETECTED - ACTION REQUIRED" > drift-email.txt
-          echo "" >> drift-email.txt
-          echo "Repository: ${{ github.repository }}" >> drift-email.txt
-          echo "Branch: ${{ github.ref_name }}" >> drift-email.txt
-          echo "Commit: ${{ github.sha }}" >> drift-email.txt
-          echo "Triggered by: ${{ github.actor }}" >> drift-email.txt
-          echo "Time: $(date -u)" >> drift-email.txt
-          echo "" >> drift-email.txt
-          echo "Manual approval is required before deploying these changes." >> drift-email.txt
-          echo "" >> drift-email.txt
-          echo "View GitHub Actions run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" >> drift-email.txt
-
-      - name: Send Email Alert
-        uses: dawidd6/action-send-mail@v3
-        with:
-          server_address: smtp.mail.yahoo.com
-          server_port: 587
-          secure: false
-          username: ${{ secrets.YAHOO_EMAIL_USERNAME }}
-          password: ${{ secrets.YAHOO_EMAIL_PASSWORD }}
-          subject: "⚠️ Application Changes Detected - ${{ github.repository }}"
-          to: ${{ secrets.YAHOO_NOTIFICATION_EMAIL }}
-          from: "DevOps CI/CD <${{ secrets.YAHOO_EMAIL_USERNAME }}>"
-          body: file://./drift-email.txt
-          priority: high
-
-  await-approval:
-    name: Await Manual Approval
-    runs-on: ubuntu-latest
-    needs: send-drift-notification
-    if: github.event.inputs.force_apply != 'true'
-    environment:
-      name: production
-    steps:
-      - name: Approval Checkpoint
-        run: |
-          echo "✅ Manual approval received"
-          echo "Proceeding with application deployment..."
-
   deploy:
     name: Deploy Application
     runs-on: ubuntu-latest
-    needs: [check-changes, await-approval]
+    needs: check-changes
     if: |
       needs.check-changes.outputs.has_changes == 'true' ||
       github.event.inputs.force_apply == 'true'
