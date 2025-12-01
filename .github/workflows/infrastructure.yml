@@ -310,7 +310,7 @@ jobs:
         with:
           server_address: smtp.mail.yahoo.com
           server_port: 465
-          secure: ssl
+          secure: true
           username: ${{ secrets.YAHOO_EMAIL_USERNAME }}
           password: ${{ secrets.YAHOO_EMAIL_PASSWORD }}
           subject: "✅ Terraform Apply Successful - ${{ github.repository }}"
@@ -335,7 +335,7 @@ jobs:
         with:
           server_address: smtp.mail.yahoo.com
           server_port: 465
-          secure: ssl
+          secure: true
           username: ${{ secrets.YAHOO_EMAIL_USERNAME }}
           password: ${{ secrets.YAHOO_EMAIL_PASSWORD }}
           subject: "❌ Terraform Apply Failed - ${{ github.repository }}"
