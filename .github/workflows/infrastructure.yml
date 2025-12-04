@@ -184,11 +184,20 @@ jobs:
             echo "Infrastructure matches the desired configuration" >> $GITHUB_STEP_SUMMARY
           fi
 
+  skip-if-no-drift:
+    name: Stop Scheduled Runs Without Drift
+    runs-on: ubuntu-latest
+    needs: terraform-plan
+    if: github.event_name == 'schedule' && needs.terraform-plan.outputs.has_changes == 'false'
+    steps:
+      - run: |
+          echo "No drift detected. Stopping workflow early."
+
   send-drift-notification:
     name: Send Drift Notification
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    needs: terraform-plan
+    needs: [terraform-plan, skip-if-no-drift]
     if: needs.terraform-plan.outputs.has_changes == 'true'
 
     steps:
@@ -216,7 +225,7 @@ jobs:
     name: Await Manual Approval
     runs-on: ubuntu-latest
     timeout-minutes: 1440
-    needs: [terraform-plan, send-drift-notification]
+    needs: [terraform-plan, skip-if-no-drift, send-drift-notification]
     if: |
       needs.terraform-plan.outputs.has_changes == 'true' &&
       github.event.inputs.force_apply != 'true'
@@ -233,7 +242,7 @@ jobs:
     name: Apply Changes
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    needs: [terraform-plan, await-approval]
+    needs: [terraform-plan, skip-if-no-drift, await-approval]
     if: |
       always() &&
       needs.terraform-plan.result == 'success' &&
