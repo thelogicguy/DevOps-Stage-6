@@ -208,6 +208,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     needs: terraform-plan
+    # Run ONLY when changes are detected
     if: needs.terraform-plan.outputs.has_changes == 'true'
 
     steps:
@@ -216,7 +217,7 @@ jobs:
         with:
           name: tfplan-${{ github.run_id }}
 
-      - name: Send Email Alert
+      - name: Send Email Alert (Drift Detected)
         uses: dawidd6/action-send-mail@v3
         with:
           server_address: smtp.mail.yahoo.com
@@ -227,15 +228,50 @@ jobs:
           subject: "⚠️ Terraform Drift Detected - ${{ github.repository }}"
           to: ${{ secrets.YAHOO_NOTIFICATION_EMAIL }}
           from: ${{ secrets.YAHOO_EMAIL_USERNAME }}
-          body: file://./drift-email.txt
+          body: file://./infra/terraform/drift-email.txt
           convert_markdown: false
           priority: high
+
+  send-no-drift-notification:
+    name: Send No Drift Notification
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs: terraform-plan
+    # 👇 NEW: Run ONLY when NO changes are detected
+    if: needs.terraform-plan.outputs.has_changes == 'false'
+
+    steps:
+      - name: Send Email Alert (No Change)
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.mail.yahoo.com
+          server_port: 587
+          secure: false
+          username: ${{ secrets.YAHOO_EMAIL_USERNAME }}
+          password: ${{ secrets.YAHOO_EMAIL_PASSWORD }}
+          subject: "✅ Terraform No Change Detected - ${{ github.repository }}"
+          to: ${{ secrets.YAHOO_NOTIFICATION_EMAIL }}
+          from: ${{ secrets.YAHOO_EMAIL_USERNAME }}
+          body: |
+            Terraform drift detection completed successfully.
+            
+            **Status:** No infrastructure changes or drift detected.
+            
+            Repository: ${{ github.repository }}
+            Branch: ${{ github.ref_name }}
+            Triggered by: ${{ github.actor }}
+            Time: $(date -u)
+            
+            View detection details: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          convert_markdown: false
+          priority: normal
 
   await-approval:
     name: Await Manual Approval
     runs-on: ubuntu-latest
     timeout-minutes: 1440
-    needs: [terraform-plan, send-drift-notification]
+    # 👇 UPDATED: Removed dependency on send-drift-notification
+    needs: terraform-plan
     if: |
       needs.terraform-plan.outputs.has_changes == 'true' &&
       github.event.inputs.force_apply != 'true'
