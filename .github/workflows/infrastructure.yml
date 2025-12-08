@@ -1,50 +1,44 @@
-name: Infrastructure Pipeline
+name: Infrastructure Deployment
 
 on:
   push:
-    branches: [main]
+    branches:
+      - main
     paths:
       - 'infra/terraform/**'
       - 'infra/ansible/**'
       - '.github/workflows/infrastructure.yml'
+  schedule:
+    # Run drift detection daily at 9 AM UTC
+    - cron: '0 9 * * *'
   workflow_dispatch:
-
-env:
-  AWS_REGION: us-east-1
-  TF_VAR_aws_region: us-east-1
-  TF_VAR_project_name: todo-app
-  TF_VAR_instance_type: t3.medium
-  TF_VAR_root_volume_size: 30
-  TF_VAR_domain: ${{ secrets.DOMAIN }}
-  TF_VAR_cloudflare_email: ${{ secrets.CLOUDFLARE_EMAIL }}
-  TF_VAR_cloudflare_api_token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-  TF_VAR_jwt_secret: ${{ secrets.JWT_SECRET }}
-  TF_VAR_app_repo_url: ${{ github.server_url }}/${{ github.repository }}.git
-  TF_VAR_app_repo_branch: ${{ github.ref_name }}
+    inputs:
+      force_apply:
+        description: 'Force apply without approval'
+        required: false
+        type: boolean
+        default: false
 
 concurrency:
-  group: infrastructure-${{ github.ref }}
+  group: terraform-${{ github.ref }}
   cancel-in-progress: false
 
+env:
+  TF_VERSION: '1.5.0'
+  AWS_REGION: 'us-east-1'
+
 jobs:
-  terraform:
+  terraform-plan:
+    name: Terraform Plan & Drift Detection
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      issues: write
-      pull-requests: write
+    timeout-minutes: 15
     outputs:
-      drift: ${{ steps.plan.outputs.drift }}
-      server_ip: ${{ steps.apply.outputs.server_ip }}
+      has_changes: ${{ steps.plan.outputs.has_changes }}
+      plan_exitcode: ${{ steps.plan.outputs.exitcode }}
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v3
-        with:
-          terraform_version: 1.5.0
-          terraform_wrapper: false
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
@@ -53,156 +47,176 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: Create SSH key file
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+          terraform_wrapper: false
+
+      - name: Terraform Init
+        working-directory: ./infra/terraform
+        run: terraform init -input=false
+
+      - name: Terraform Validate
+        working-directory: ./infra/terraform
+        run: terraform validate
+
+      - name: Setup SSH Keys for Plan
+        id: setup-ssh-plan
         run: |
           mkdir -p $HOME/.ssh
           echo "${{ secrets.SSH_PRIVATE_KEY }}" > $HOME/.ssh/terraform-deploy-key
           echo "${{ secrets.SSH_PUBLIC_KEY }}" > $HOME/.ssh/terraform-deploy-key.pub
           chmod 600 $HOME/.ssh/terraform-deploy-key
           chmod 644 $HOME/.ssh/terraform-deploy-key.pub
-          echo "TF_VAR_ssh_private_key_path=$HOME/.ssh/terraform-deploy-key" >> $GITHUB_ENV
-          echo "TF_VAR_ssh_public_key_path=$HOME/.ssh/terraform-deploy-key.pub" >> $GITHUB_ENV
+          echo "ssh_private_key_path=$HOME/.ssh/terraform-deploy-key" >> $GITHUB_OUTPUT
+          echo "ssh_public_key_path=$HOME/.ssh/terraform-deploy-key.pub" >> $GITHUB_OUTPUT
 
-      - name: Setup S3 bucket for backend
-        run: |
-          cd infra/terraform
-
-          # Check if S3 bucket exists
-          if aws s3api head-bucket --bucket "todo-terraform-state-bucket-12345" 2>/dev/null; then
-            echo "S3 bucket already exists, proceeding with backend initialization"
-          else
-            echo "S3 bucket doesn't exist, creating with local backend first"
-
-            # Create a temporary S3 bucket resource file
-            cat > s3-backend-setup.tf << 'EOFMARKER'
-          resource "aws_s3_bucket" "terraform_state" {
-            bucket = "todo-terraform-state-bucket-12345"
-
-            tags = {
-              Name        = "Terraform State Bucket"
-              Environment = "production"
-              ManagedBy   = "Terraform"
-            }
-          }
-
-          resource "aws_s3_bucket_versioning" "terraform_state" {
-            bucket = aws_s3_bucket.terraform_state.id
-
-            versioning_configuration {
-              status = "Enabled"
-            }
-          }
-
-          resource "aws_s3_bucket_server_side_encryption_configuration" "terraform_state" {
-            bucket = aws_s3_bucket.terraform_state.id
-
-            rule {
-              apply_server_side_encryption_by_default {
-                sse_algorithm = "AES256"
-              }
-            }
-          }
-          EOFMARKER
-
-            # Temporarily disable S3 backend
-            if [ -f "backend.tf" ]; then
-              mv backend.tf backend.tf.temp
-            fi
-
-            # Initialize without backend
-            terraform init -input=false
-
-            # Create S3 bucket and related resources
-            terraform apply -target=aws_s3_bucket.terraform_state -target=aws_s3_bucket_versioning.terraform_state -target=aws_s3_bucket_server_side_encryption_configuration.terraform_state -auto-approve
-
-            # Restore backend configuration
-            if [ -f "backend.tf.temp" ]; then
-              mv backend.tf.temp backend.tf
-            fi
-
-            # Remove temporary file
-            rm -f s3-backend-setup.tf
-          fi
-
-      - name: Terraform Init with S3 backend
-        run: |
-          cd infra/terraform
-          terraform init -force-copy -input=false
-
-      - name: Import existing resources if they exist
-        run: |
-          cd infra/terraform
-
-          # Try to import existing security group
-          SG_ID=$(aws ec2 describe-security-groups --group-names "todo-app-sg" --query 'SecurityGroups[0].GroupId' --output text 2>/dev/null || echo "None")
-          if [ "$SG_ID" != "None" ] && [ "$SG_ID" != "null" ]; then
-            echo "Found existing security group: $SG_ID"
-            terraform import aws_security_group.app_server $SG_ID || echo "Security group already in state or import failed"
-          fi
-
-          # Try to import existing key pair
-          KEY_NAME=$(aws ec2 describe-key-pairs --key-names "todo-app-key" --query 'KeyPairs[0].KeyName' --output text 2>/dev/null || echo "None")
-          if [ "$KEY_NAME" != "None" ] && [ "$KEY_NAME" != "null" ]; then
-            echo "Found existing key pair: $KEY_NAME"
-            terraform import aws_key_pair.deployer $KEY_NAME || echo "Key pair already in state or import failed"
-          fi
-
-          # Try to import existing instance
-          INSTANCE_ID=$(aws ec2 describe-instances --filters "Name=tag:Name,Values=todo-app-server" "Name=instance-state-name,Values=running,stopped" --query 'Reservations[0].Instances[0].InstanceId' --output text 2>/dev/null || echo "None")
-          if [ "$INSTANCE_ID" != "None" ] && [ "$INSTANCE_ID" != "null" ]; then
-            echo "Found existing instance: $INSTANCE_ID"
-            terraform import aws_instance.app_server $INSTANCE_ID || echo "Instance already in state or import failed"
-
-            # Try to import EIP associated with instance
-            EIP_ID=$(aws ec2 describe-addresses --filters "Name=instance-id,Values=$INSTANCE_ID" --query 'Addresses[0].AllocationId' --output text 2>/dev/null || echo "None")
-            if [ "$EIP_ID" != "None" ] && [ "$EIP_ID" != "null" ]; then
-              echo "Found existing EIP: $EIP_ID"
-              terraform import aws_eip.app_server $EIP_ID || echo "EIP already in state or import failed"
-            fi
-          fi
-
-      - name: Terraform Plan (Drift Detection)
+      - name: Terraform Plan
         id: plan
+        working-directory: ./infra/terraform
+        env:
+          TF_VAR_domain: ${{ secrets.DOMAIN }}
+          TF_VAR_cloudflare_email: ${{ secrets.CLOUDFLARE_EMAIL }}
+          TF_VAR_cloudflare_api_token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          TF_VAR_jwt_secret: ${{ secrets.JWT_SECRET }}
+          TF_VAR_ssh_private_key_path: ${{ steps.setup-ssh-plan.outputs.ssh_private_key_path }}
+          TF_VAR_ssh_public_key_path: ${{ steps.setup-ssh-plan.outputs.ssh_public_key_path }}
+          TF_VAR_ssh_private_key: ${{ secrets.SSH_PRIVATE_KEY }}
+          TF_VAR_ssh_public_key: ${{ secrets.SSH_PUBLIC_KEY }}
+          TF_IN_AUTOMATION: "true"
         run: |
+          set -o pipefail
           set +e
-          cd infra/terraform
-          terraform plan -detailed-exitcode -out=tfplan -no-color > ../../plan_output.txt 2>&1
-          EXIT_CODE=$?
 
-          echo "exitcode=$EXIT_CODE" >> $GITHUB_OUTPUT
+          # run plan and preserve exit code
+          terraform plan -input=false -detailed-exitcode -out=tfplan \
+            2>&1 | tee plan.log
 
-          if [ $EXIT_CODE -eq 0 ]; then
-            echo "drift=false" >> $GITHUB_OUTPUT
-            echo "No changes detected - infrastructure is up to date"
-          elif [ $EXIT_CODE -eq 1 ]; then
-            echo "drift=error" >> $GITHUB_OUTPUT
-            echo "Terraform plan failed with errors"
-            cat ../../plan_output.txt
+          exitcode=${PIPESTATUS[0]}
+
+          set -e
+
+          echo "exitcode=$exitcode" >> $GITHUB_OUTPUT
+
+          if [ $exitcode -eq 0 ]; then
+            echo "has_changes=false" >> $GITHUB_OUTPUT
+            echo "No changes detected - infrastructure is in sync."
+          elif [ $exitcode -eq 1 ]; then
+            echo "has_changes=false" >> $GITHUB_OUTPUT
+            echo "Terraform plan failed."
             exit 1
-          elif [ $EXIT_CODE -eq 2 ]; then
-            echo "drift=true" >> $GITHUB_OUTPUT
-            echo "Infrastructure drift detected - changes planned"
+          elif [ $exitcode -eq 2 ]; then
+            echo "has_changes=true" >> $GITHUB_OUTPUT
+            echo "⚠️ DRIFT DETECTED - Changes found in infrastructure!"
+            terraform show -no-color tfplan | head -100
           fi
 
-          # Add plan output to job summary
-          echo "## Terraform Plan Output" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          cat ../../plan_output.txt >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
+      - name: Save Plan Details
+        if: steps.plan.outputs.has_changes == 'true'
+        working-directory: ./infra/terraform
+        run: |
+          # Extract the complete detailed plan showing all resource changes
+          FULL_PLAN=$(terraform show -no-color tfplan)
+
+          # Extract just the actions section for summary
+          CHANGES=$(echo "$FULL_PLAN" | sed -n '/Terraform will perform the following actions:/,/Plan:/p')
+
+          echo "# Drift Detection Report" > drift-report.md
+          echo "" >> drift-report.md
+          echo "**Status:** 🔴 Configuration Drift Detected" >> drift-report.md
+          echo "" >> drift-report.md
+          echo "**Detected at:** $(date -u)" >> drift-report.md
+          echo "" >> drift-report.md
+          echo "## Planned Changes" >> drift-report.md
+          echo "" >> drift-report.md
+          echo '```terraform' >> drift-report.md
+          echo "$FULL_PLAN" >> drift-report.md
+          echo '```' >> drift-report.md
+
+          # Create detailed plain text version for email showing complete exact changes
+          echo "TERRAFORM DRIFT DETECTED - ACTION REQUIRED" > drift-email.txt
+          echo "" >> drift-email.txt
+          echo "========================================" >> drift-email.txt
+          echo "EXACT INFRASTRUCTURE CHANGES:" >> drift-email.txt
+          echo "========================================" >> drift-email.txt
+          echo "" >> drift-email.txt
+          echo "Terraform will perform the following actions:" >> drift-email.txt
+          echo "" >> drift-email.txt
+          echo "$FULL_PLAN" >> drift-email.txt
+          echo "" >> drift-email.txt
+          echo "========================================" >> drift-email.txt
+          echo "" >> drift-email.txt
+          echo "DRIFT DETECTION DETAILS:" >> drift-email.txt
+          echo "Repository: ${{ github.repository }}" >> drift-email.txt
+          echo "Branch: ${{ github.ref_name }}" >> drift-email.txt
+          echo "Triggered by: ${{ github.actor }}" >> drift-email.txt
+          echo "Time: $(date -u)" >> drift-email.txt
+          echo "" >> drift-email.txt
+          echo "========================================" >> drift-email.txt
+          echo "" >> drift-email.txt
+          echo "APPROVAL REQUIRED TO APPLY CHANGES:" >> drift-email.txt
+          echo "1. Visit: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" >> drift-email.txt
+          echo "2. Review the changes carefully" >> drift-email.txt
+          echo "3. Approve the 'production' environment deployment" >> drift-email.txt
+          echo "" >> drift-email.txt
+          echo "⚠️ WARNING: If you did not expect these changes, investigate immediately!" >> drift-email.txt
 
       - name: Upload Terraform Plan
-        if: steps.plan.outputs.drift == 'true'
+        if: steps.plan.outputs.has_changes == 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: terraform-plan-${{ github.run_number }}
+          name: tfplan-${{ github.run_id }}
           path: |
             infra/terraform/tfplan
-            plan_output.txt
-          retention-days: 30
+            infra/terraform/drift-report.md
+            infra/terraform/drift-email.txt
+          retention-days: 7
 
-      - name: Send Drift Detection Email
-        if: steps.plan.outputs.drift == 'true'
-        continue-on-error: true
+      - name: Comment on PR
+        if: steps.plan.outputs.has_changes == 'true' && github.event_name == 'push'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const driftReport = fs.readFileSync('infra/terraform/drift-report.md', 'utf8');
+            
+            github.rest.repos.createCommitComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              commit_sha: context.sha,
+              body: driftReport
+            });
+
+      - name: Create Step Summary
+        if: always()
+        run: |
+          if [ "${{ steps.plan.outputs.has_changes }}" == "true" ]; then
+            echo "## ⚠️ Infrastructure Drift Detected" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "Configuration drift has been detected!" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "**Action Required:** Manual approval needed before applying changes" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "## ✅ No Infrastructure Drift" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "Infrastructure matches the desired configuration" >> $GITHUB_STEP_SUMMARY
+          fi
+
+  send-drift-notification:
+    name: Send Drift Notification
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs: terraform-plan
+    if: needs.terraform-plan.outputs.has_changes == 'true'
+
+    steps:
+      - name: Download Drift Report
+        uses: actions/download-artifact@v4
+        with:
+          name: tfplan-${{ github.run_id }}
+
+      - name: Send Email Alert
         uses: dawidd6/action-send-mail@v3
         with:
           server_address: smtp.mail.yahoo.com
@@ -210,186 +224,104 @@ jobs:
           secure: false
           username: ${{ secrets.YAHOO_EMAIL_USERNAME }}
           password: ${{ secrets.YAHOO_EMAIL_PASSWORD }}
-          subject: 'Infrastructure Drift Detected - Manual Approval Required'
+          subject: "⚠️ Terraform Drift Detected - ${{ github.repository }}"
           to: ${{ secrets.YAHOO_NOTIFICATION_EMAIL }}
           from: ${{ secrets.YAHOO_EMAIL_USERNAME }}
+          body: file://./drift-email.txt
+          convert_markdown: false
           priority: high
-          html_body: |
-            <html>
-            <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
-              <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
-                <h2 style="color: #d73a49; border-bottom: 2px solid #d73a49; padding-bottom: 10px;">Infrastructure Drift Alert</h2>
 
-                <div style="background-color: #f6f8fa; padding: 15px; border-radius: 5px; margin: 20px 0;">
-                  <p><strong>Project:</strong> ${{ github.repository }}</p>
-                  <p><strong>Branch:</strong> ${{ github.ref_name }}</p>
-                  <p><strong>Commit:</strong> ${{ github.sha }}</p>
-                  <p><strong>Workflow Run:</strong> ${{ github.run_id }}</p>
-                </div>
+  await-approval:
+    name: Await Manual Approval
+    runs-on: ubuntu-latest
+    timeout-minutes: 1440
+    needs: [terraform-plan, send-drift-notification]
+    if: |
+      needs.terraform-plan.outputs.has_changes == 'true' &&
+      github.event.inputs.force_apply != 'true'
+    environment:
+      name: production
 
-                <h3 style="color: #0366d6;">Summary</h3>
-                <p>Infrastructure drift has been detected. The current infrastructure state differs from your Terraform configuration.</p>
+    steps:
+      - name: Approval Checkpoint
+        run: |
+          echo "✅ Manual approval received"
+          echo "Proceeding with terraform apply..."
 
-                <h3 style="color: #0366d6;">What This Means</h3>
-                <ul>
-                  <li>Resources may have been modified outside of Terraform</li>
-                  <li>New resources may need to be created</li>
-                  <li>Existing resources may need updates</li>
-                  <li>Manual approval is required before applying changes</li>
-                </ul>
+  terraform-apply:
+    name: Apply Changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: [terraform-plan, await-approval]
+    if: |
+      always() &&
+      needs.terraform-plan.result == 'success' &&
+      needs.terraform-plan.outputs.has_changes == 'true' &&
+      (
+        needs.await-approval.result == 'success' ||
+        github.event.inputs.force_apply == 'true'
+      )
 
-                <h3 style="color: #0366d6;">Required Actions</h3>
-                <ol>
-                  <li><strong>Review the changes</strong> in the GitHub Actions workflow</li>
-                  <li><strong>Download the Terraform plan</strong> from the artifacts</li>
-                  <li><strong>Approve or reject</strong> the changes</li>
-                  <li><strong>Investigate</strong> why drift occurred to prevent future issues</li>
-                </ol>
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-                <h3 style="color: #0366d6;">Links</h3>
-                <p>
-                  <a href="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-                     style="background-color: #0366d6; color: white; padding: 10px 15px; text-decoration: none; border-radius: 5px; display: inline-block; margin: 5px 0;">
-                    View Workflow Run
-                  </a><br>
-                  <a href="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}#artifacts"
-                     style="background-color: #28a745; color: white; padding: 10px 15px; text-decoration: none; border-radius: 5px; display: inline-block; margin: 5px 0;">
-                    Download Terraform Plan
-                  </a>
-                </p>
-
-                <div style="background-color: #fff3cd; border: 1px solid #ffeaa7; padding: 15px; border-radius: 5px; margin: 20px 0;">
-                  <h3 style="color: #856404; margin-top: 0;">Security Note</h3>
-                  <p>If you did not expect these changes, this could indicate:</p>
-                  <ul>
-                    <li>Unauthorized access to your AWS account</li>
-                    <li>Manual changes made outside of the CI/CD process</li>
-                    <li>Configuration drift that needs immediate attention</li>
-                  </ul>
-                </div>
-
-                <div style="text-align: center; margin: 30px 0; padding: 20px; background-color: #f8f9fa; border-radius: 5px;">
-                  <p style="font-size: 18px; font-weight: bold; color: #d73a49;">Please review and approve/reject within 24 hours.</p>
-                </div>
-
-                <hr style="border: none; border-top: 1px solid #e1e4e8; margin: 30px 0;">
-                <p style="font-size: 12px; color: #6a737d; text-align: center;">
-                  <em>This is an automated message from your DevOps pipeline.</em><br>
-                  <em>Generated at: ${{ github.event.head_commit.timestamp }}</em>
-                </p>
-              </div>
-            </body>
-            </html>
-
-      - name: Wait for Manual Approval
-        if: steps.plan.outputs.drift == 'true'
-        uses: trstringer/manual-approval@v1
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
         with:
-          secret: ${{ secrets.GITHUB_TOKEN }}
-          approvers: ${{ github.repository_owner }}
-          minimum-approvals: 1
-          polling-interval-seconds: 60
-          issue-title: 'Infrastructure Drift - Manual Approval Required'
-          issue-body: |
-            ## Infrastructure Drift Detected - Approval Required
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
 
-            **Workflow:** ${{ github.workflow }}
-            **Run ID:** ${{ github.run_id }}
-            **Branch:** ${{ github.ref_name }}
-            **Commit:** ${{ github.sha }}
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+          terraform_wrapper: false
 
-            ### Changes Detected
-            Terraform has detected changes that need to be applied to your infrastructure.
-
-            ### Review Process
-            1. Check the [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) for details
-            2. Download and review the Terraform plan from artifacts
-            3. Verify the changes are expected and safe
-
-            ### Approval
-            - **To approve:** Comment `approved` on this issue
-            - **To reject:** Comment `denied` on this issue
-
-            ### Security Reminder
-            Only approve if you understand and expect these changes.
-
-            **This issue will auto-close if no action is taken.**
-
-      - name: Terraform Apply
-        id: apply
-        if: steps.plan.outputs.drift == 'true' || steps.plan.outputs.drift == 'false'
+      - name: Setup SSH Keys
+        id: setup-ssh
         run: |
-          if [ "${{ steps.plan.outputs.drift }}" == "true" ]; then
-            echo "Applying planned changes..."
-            terraform -chdir=infra/terraform apply -input=false tfplan
-          else
-            echo "No changes to apply - infrastructure is up to date"
-          fi
+          mkdir -p $HOME/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > $HOME/.ssh/terraform-deploy-key
+          echo "${{ secrets.SSH_PUBLIC_KEY }}" > $HOME/.ssh/terraform-deploy-key.pub
+          chmod 600 $HOME/.ssh/terraform-deploy-key
+          chmod 644 $HOME/.ssh/terraform-deploy-key.pub
+          echo "ssh_private_key_path=$HOME/.ssh/terraform-deploy-key" >> $GITHUB_OUTPUT
+          echo "ssh_public_key_path=$HOME/.ssh/terraform-deploy-key.pub" >> $GITHUB_OUTPUT
 
-          # Get server IP for inventory
-          SERVER_IP=$(terraform -chdir=infra/terraform output -raw instance_public_ip 2>/dev/null || echo "")
-          echo "server_ip=$SERVER_IP" >> $GITHUB_OUTPUT
-
-          if [ -n "$SERVER_IP" ]; then
-            echo "Server IP: $SERVER_IP"
-          else
-            echo "Warning: Could not retrieve server IP"
-          fi
-
-      - name: Generate Ansible Inventory
-        if: steps.apply.outputs.server_ip != ''
+      - name: Setup Ansible
         run: |
-          mkdir -p infra/ansible/inventory
-          cat > infra/ansible/inventory/hosts << EOF
-          [app_servers]
-          ${{ steps.apply.outputs.server_ip }} ansible_user=ubuntu ansible_ssh_private_key_file=$HOME/.ssh/terraform-deploy-key ansible_ssh_common_args='-o StrictHostKeyChecking=no'
+          pip install ansible
 
-          [app_servers:vars]
-          domain=${{ secrets.DOMAIN }}
-          cloudflare_email=${{ secrets.CLOUDFLARE_EMAIL }}
-          cloudflare_api_token=${{ secrets.CLOUDFLARE_API_TOKEN }}
-          jwt_secret=${{ secrets.JWT_SECRET }}
-          app_repo_url=${{ github.server_url }}/${{ github.repository }}.git
-          app_repo_branch=${{ github.ref_name }}
-          EOF
+      - name: Terraform Init
+        working-directory: ./infra/terraform
+        run: terraform init -input=false
 
-      - name: Install Ansible
-        if: steps.apply.outputs.server_ip != ''
-        run: |
-          pip install ansible-core==2.17.5
-          ansible-galaxy collection install community.general
-          ansible-galaxy collection install community.docker
+      - name: Download Plan
+        uses: actions/download-artifact@v4
+        with:
+          name: tfplan-${{ github.run_id }}
+          path: infra/terraform
 
-      - name: Wait for SSH to be ready
-        if: steps.apply.outputs.server_ip != ''
-        run: |
-          echo "Waiting for SSH to be ready on ${{ steps.apply.outputs.server_ip }}..."
-          for i in {1..30}; do
-            if ssh -i $HOME/.ssh/terraform-deploy-key -o StrictHostKeyChecking=no -o ConnectTimeout=10 ubuntu@${{ steps.apply.outputs.server_ip }} echo "SSH Ready"; then
-              echo "SSH is ready!"
-              break
-            fi
-            echo "Attempt $i/30 failed, waiting 10 seconds..."
-            sleep 10
-          done
-
-      - name: Run Ansible Deployment
-        if: steps.apply.outputs.server_ip != ''
-        run: |
-          cd infra/ansible
-          ansible-playbook -i inventory/hosts playbook.yml -v
+      - name: Apply Changes
+        working-directory: ./infra/terraform
         env:
-          ANSIBLE_HOST_KEY_CHECKING: False
-          DOMAIN: ${{ secrets.DOMAIN }}
-          CF_API_EMAIL: ${{ secrets.CLOUDFLARE_EMAIL }}
-          CF_DNS_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          JWT_SECRET: ${{ secrets.JWT_SECRET }}
-          APP_REPO_URL: ${{ github.server_url }}/${{ github.repository }}.git
-          APP_REPO_BRANCH: ${{ github.ref_name }}
+          TF_VAR_domain: ${{ secrets.DOMAIN }}
+          TF_VAR_cloudflare_email: ${{ secrets.CLOUDFLARE_EMAIL }}
+          TF_VAR_cloudflare_api_token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          TF_VAR_jwt_secret: ${{ secrets.JWT_SECRET }}
+          TF_VAR_ssh_private_key_path: ${{ steps.setup-ssh.outputs.ssh_private_key_path }}
+          TF_VAR_ssh_public_key_path: ${{ steps.setup-ssh.outputs.ssh_public_key_path }}
+          TF_VAR_ssh_private_key: ${{ secrets.SSH_PRIVATE_KEY }}
+          TF_VAR_ssh_public_key: ${{ secrets.SSH_PUBLIC_KEY }}
+          TF_IN_AUTOMATION: "true"
+        run: |
+          echo "Applying planned changes..."
+          terraform apply -input=false tfplan
 
       - name: Send Success Notification
         if: success()
-        continue-on-error: true
         uses: dawidd6/action-send-mail@v3
         with:
           server_address: smtp.mail.yahoo.com
@@ -397,57 +329,24 @@ jobs:
           secure: false
           username: ${{ secrets.YAHOO_EMAIL_USERNAME }}
           password: ${{ secrets.YAHOO_EMAIL_PASSWORD }}
-          subject: 'Infrastructure Deployment Successful'
+          subject: "✅ Terraform Apply Successful - ${{ github.repository }}"
           to: ${{ secrets.YAHOO_NOTIFICATION_EMAIL }}
           from: ${{ secrets.YAHOO_EMAIL_USERNAME }}
-          html_body: |
-            <html>
-            <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
-              <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
-                <h2 style="color: #28a745; border-bottom: 2px solid #28a745; padding-bottom: 10px;">Infrastructure Deployment Complete</h2>
+          body: |
+            Terraform apply completed successfully!
 
-                <div style="background-color: #d4edda; padding: 15px; border-radius: 5px; margin: 20px 0; border: 1px solid #c3e6cb;">
-                  <p><strong>Project:</strong> ${{ github.repository }}</p>
-                  <p><strong>Status:</strong> Successfully deployed</p>
-                  <p><strong>Server IP:</strong> ${{ steps.apply.outputs.server_ip }}</p>
-                  <p><strong>Domain:</strong> <a href="https://${{ secrets.DOMAIN }}">https://${{ secrets.DOMAIN }}</a></p>
-                </div>
+            Repository: ${{ github.repository }}
+            Branch: ${{ github.ref_name }}
+            Commit: ${{ github.sha }}
+            Applied by: ${{ github.actor }}
+            Time: $(date -u)
 
-                <h3 style="color: #0366d6;">What was deployed:</h3>
-                <ul>
-                  <li>Infrastructure provisioned with Terraform</li>
-                  <li>Server configured with Ansible</li>
-                  <li>Application deployed</li>
-                  <li>SSL certificates configured</li>
-                </ul>
+            Infrastructure is now synchronized with configuration.
 
-                <h3 style="color: #0366d6;">Access your application:</h3>
-                <div style="background-color: #f6f8fa; padding: 15px; border-radius: 5px;">
-                  <p><strong>Application:</strong> <a href="https://${{ secrets.DOMAIN }}">https://${{ secrets.DOMAIN }}</a></p>
-                </div>
-
-                <h3 style="color: #0366d6;">Next Steps:</h3>
-                <ul>
-                  <li>Test your application functionality</li>
-                  <li>Monitor for any issues</li>
-                  <li>Check logs if needed</li>
-                </ul>
-
-                <div style="text-align: center; margin: 30px 0; padding: 20px; background-color: #d4edda; border-radius: 5px;">
-                  <p style="font-size: 18px; font-weight: bold; color: #155724;">Deployment completed successfully!</p>
-                </div>
-
-                <hr style="border: none; border-top: 1px solid #e1e4e8; margin: 30px 0;">
-                <p style="font-size: 12px; color: #6a737d; text-align: center;">
-                  <em>Automated deployment notification</em>
-                </p>
-              </div>
-            </body>
-            </html>
+            View details: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
 
       - name: Send Failure Notification
         if: failure()
-        continue-on-error: true
         uses: dawidd6/action-send-mail@v3
         with:
           server_address: smtp.mail.yahoo.com
@@ -455,50 +354,18 @@ jobs:
           secure: false
           username: ${{ secrets.YAHOO_EMAIL_USERNAME }}
           password: ${{ secrets.YAHOO_EMAIL_PASSWORD }}
-          subject: 'Infrastructure Deployment Failed'
+          subject: "❌ Terraform Apply Failed - ${{ github.repository }}"
           to: ${{ secrets.YAHOO_NOTIFICATION_EMAIL }}
           from: ${{ secrets.YAHOO_EMAIL_USERNAME }}
           priority: high
-          html_body: |
-            <html>
-            <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
-              <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
-                <h2 style="color: #d73a49; border-bottom: 2px solid #d73a49; padding-bottom: 10px;">Infrastructure Deployment Failed</h2>
+          body: |
+            ⚠️ TERRAFORM APPLY FAILED ⚠️
 
-                <div style="background-color: #f8d7da; padding: 15px; border-radius: 5px; margin: 20px 0; border: 1px solid #f5c6cb;">
-                  <p><strong>Project:</strong> ${{ github.repository }}</p>
-                  <p><strong>Status:</strong> Deployment failed</p>
-                  <p><strong>Workflow Run:</strong> ${{ github.run_id }}</p>
-                </div>
+            Repository: ${{ github.repository }}
+            Branch: ${{ github.ref_name }}
+            Commit: ${{ github.sha }}
 
-                <h3 style="color: #d73a49;">Failure Details:</h3>
-                <p>The infrastructure deployment pipeline has failed. Please check the workflow logs for detailed error information.</p>
+            Please check the logs immediately:
+            ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
 
-                <h3 style="color: #0366d6;">Troubleshooting Steps:</h3>
-                <ol>
-                  <li>Check the <a href="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}">workflow logs</a></li>
-                  <li>Verify AWS credentials and permissions</li>
-                  <li>Check Terraform configuration syntax</li>
-                  <li>Verify Ansible playbook syntax</li>
-                  <li>Ensure all required secrets are configured</li>
-                </ol>
-
-                <h3 style="color: #0366d6;">Common Issues:</h3>
-                <ul>
-                  <li>AWS credential problems</li>
-                  <li>Resource limits or quotas</li>
-                  <li>Network connectivity issues</li>
-                  <li>Configuration syntax errors</li>
-                </ul>
-
-                <div style="text-align: center; margin: 30px 0; padding: 20px; background-color: #f8d7da; border-radius: 5px;">
-                  <p style="font-size: 18px; font-weight: bold; color: #721c24;">Please investigate and retry the deployment.</p>
-                </div>
-
-                <hr style="border: none; border-top: 1px solid #e1e4e8; margin: 30px 0;">
-                <p style="font-size: 12px; color: #6a737d; text-align: center;">
-                  <em>Automated failure notification</em>
-                </p>
-              </div>
-            </body>
-            </html>
+            Infrastructure may be in an inconsistent state!
