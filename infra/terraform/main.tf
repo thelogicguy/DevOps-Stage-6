@@ -102,10 +102,6 @@ resource "aws_key_pair" "deployer" {
     Name    = "${var.project_name}-key"
     Project = var.project_name
   }
-
-  lifecycle {
-    ignore_changes = [public_key]
-  }
 }
 
 # EC2 Instance specification
@@ -118,7 +114,7 @@ resource "aws_instance" "app_server" {
 
   root_block_device {
     volume_size           = var.root_volume_size
-    volume_type           = "gp3"
+    volume_type           = "gp2"
     delete_on_termination = true
     encrypted             = true
   }
@@ -130,10 +126,6 @@ resource "aws_instance" "app_server" {
   tags = {
     Name    = "${var.project_name}-server"
     Project = var.project_name
-  }
-
-  lifecycle {
-    ignore_changes = [ami, user_data, root_block_device]
   }
 }
 
@@ -161,6 +153,10 @@ resource "local_file" "ansible_inventory" {
   file_permission = "0644"
 
   depends_on = [aws_eip.app_server]
+
+  lifecycle {
+    ignore_changes = all
+  }
 }
 
 # Wait for instance to be ready using reliable remote-exec
