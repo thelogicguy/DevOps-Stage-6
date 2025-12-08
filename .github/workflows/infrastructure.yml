@@ -205,14 +205,14 @@ jobs:
             echo "Infrastructure matches the desired configuration" >> $GITHUB_STEP_SUMMARY
           fi
 
-  skip-if-no-drift:
-    name: Stop Scheduled Runs Without Drift
-    runs-on: ubuntu-latest
-    needs: terraform-plan
-    if: github.event_name == 'schedule' && needs.terraform-plan.outputs.has_changes == 'false'
-    steps:
-      - run: |
-          echo "No drift detected. Stopping workflow early."
+  # skip-if-no-drift:
+  #   name: Stop Scheduled Runs Without Drift
+  #   runs-on: ubuntu-latest
+  #   needs: terraform-plan
+  #   if: github.event_name == 'schedule' && needs.terraform-plan.outputs.has_changes == 'false'
+  #   steps:
+  #     - run: |
+  #         echo "No drift detected. Stopping workflow early."
 
   send-drift-notification:
     name: Send Drift Notification
@@ -267,8 +267,8 @@ jobs:
     if: |
       always() &&
       needs.terraform-plan.result == 'success' &&
+      needs.terraform-plan.outputs.has_changes == 'true' &&
       (
-        needs.terraform-plan.outputs.has_changes == 'false' ||
         needs.await-approval.result == 'success' ||
         github.event.inputs.force_apply == 'true'
       )
@@ -329,12 +329,8 @@ jobs:
           TF_VAR_ssh_public_key: ${{ secrets.SSH_PUBLIC_KEY }}
           TF_IN_AUTOMATION: "true"
         run: |
-          if [ "${{ needs.terraform-plan.outputs.has_changes }}" == "true" ]; then
-            echo "Applying planned changes..."
-            terraform apply -input=false tfplan
-          else
-            echo "No changes to apply - infrastructure is in sync"
-          fi
+          echo "Applying planned changes..."
+          terraform apply -input=false tfplan
 
       - name: Send Success Notification
         if: success()
