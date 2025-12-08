@@ -1,0 +1,43 @@
+groups:
+    - name: application_alerts
+      interval: 30s
+      rules:
+        - alert: HighCPUUsage
+          expr: 100 - (avg by (instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 80
+          for: 2m
+          labels:
+            severity: warning
+            type: cpu
+          annotations:
+            summary: "High CPU usage detected"
+            description: "CPU usage is above 80% (current: {{ $value }}%)"
+
+        - alert: ContainerDown
+          expr: up == 0
+          for: 1m
+          labels:
+            severity: critical
+            type: health
+          annotations:
+            summary: "Container {{ $labels.job }} is down"
+            description: "Container has been down for more than 1 minute"
+
+        - alert: HighErrorRate5xx
+          expr: rate(traefik_service_requests_total{code=~"5.."}[5m]) > 0.05
+          for: 2m
+          labels:
+            severity: critical
+            type: error_5xx
+          annotations:
+            summary: "High 5xx error rate"
+            description: "5xx errors on {{ $labels.service }}: {{ $value }}/sec"
+
+        - alert: High4xxErrors
+          expr: rate(traefik_service_requests_total{code=~"4.."}[5m]) > 0.1
+          for: 5m
+          labels:
+            severity: warning
+            type: error_4xx
+          annotations:
+            summary: "High 4xx error rate"
+            description: "4xx errors on {{ $labels.service }}: {{ $value }}/sec"

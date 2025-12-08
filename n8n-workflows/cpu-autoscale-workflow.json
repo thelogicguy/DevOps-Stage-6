@@ -1,0 +1,90 @@
+{
+  "name": "CPU Monitoring & Auto-Scale Decision",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "prometheus-alerts",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "name": "Webhook - CPU Alert",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [250, 400]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{$json[\"alerts\"][0][\"labels\"][\"type\"]}}",
+              "value2": "cpu"
+            }
+          ]
+        }
+      },
+      "name": "Is CPU Alert?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [450, 400]
+    },
+    {
+      "parameters": {
+        "url": "http://prometheus:9090/api/v1/query_range",
+        "qs": {
+          "query": "100 - (avg(rate(node_cpu_seconds_total{mode=\"idle\"}[5m])) * 100)",
+          "start": "={{Date.now()/1000 - 3600}}",
+          "end": "={{Date.now()/1000}}",
+          "step": "60"
+        }
+      },
+      "name": "Fetch CPU Metrics (1hr)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 1,
+      "position": [650, 300]
+    },
+    {
+      "parameters": {
+        "authentication": "headerAuth",
+        "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent",
+        "method": "POST",
+        "qs": {
+          "key": "={{$env.GEMINI_API_KEY}}"
+        },
+        "jsonParameters": true,
+        "bodyParametersJson": "={\n  \"contents\": [\n    {\n      \"parts\": [\n        {\n          \"text\": \"Analyze this CPU usage data and determine:\\n1. Is this a short-term spike or long-term trend?\\n2. Likelihood it will continue (percentage)\\n3. Recommend auto-scaling: YES/NO\\n4. Provide reasoning\\n\\nCurrent CPU: {{$json[\\\"alerts\\\"][0][\\\"annotations\\\"][\\\"description\\\"]}}\\n\\nHistorical Data (last hour):\\n{{$node[\\\"Fetch CPU Metrics (1hr)\\\"].json[\\\"data\\\"][\\\"result\\\"]}}\"\n        }\n      ]\n    }\n  ]\n}"
+      },
+      "name": "Gemini AI Analysis",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 1,
+      "position": [850, 300]
+    },
+    {
+      "parameters": {
+        "url": "={{$env.SLACK_WEBHOOK_URL}}",
+        "method": "POST",
+        "jsonParameters": true,
+        "bodyParametersJson": "={\n  \"blocks\": [\n    {\n      \"type\": \"header\",\n      \"text\": {\n        \"type\": \"plain_text\",\n        \"text\": \"⚠️ High CPU Usage Alert\"\n      }\n    },\n    {\n      \"type\": \"section\",\n      \"fields\": [\n        {\n          \"type\": \"mrkdwn\",\n          \"text\": \"*Current CPU Usage:*\\n{{$json[\\\"alerts\\\"][0][\\\"annotations\\\"][\\\"description\\\"]}}\"\n        },\n        {\n          \"type\": \"mrkdwn\",\n          \"text\": \"*Severity:*\\n{{$json[\\\"alerts\\\"][0][\\\"labels\\\"][\\\"severity\\\"]}}\"\n        }\n      ]\n    },\n    {\n      \"type\": \"divider\"\n    },\n    {\n      \"type\": \"section\",\n      \"text\": {\n        \"type\": \"mrkdwn\",\n        \"text\": \"*🤖 AI Analysis:*\\n{{$node[\\\"Gemini AI Analysis\\\"].json[\\\"candidates\\\"][0][\\\"content\\\"][\\\"parts\\\"][0][\\\"text\\\"]}}\"\n      }\n    },\n    {\n      \"type\": \"divider\"\n    },\n    {\n      \"type\": \"section\",\n      \"text\": {\n        \"type\": \"mrkdwn\",\n        \"text\": \"*Action Required:*\\nShould we scale up the instance to handle increased load?\"\n      }\n    },\n    {\n      \"type\": \"actions\",\n      \"elements\": [\n        {\n          \"type\": \"button\",\n          \"text\": {\n            \"type\": \"plain_text\",\n            \"text\": \"✅ Approve Scale-Up\"\n          },\n          \"style\": \"primary\",\n          \"url\": \"https://n8n.{{$env.DOMAIN}}/webhook/approve-scaling\",\n          \"value\": \"approve\"\n        },\n        {\n          \"type\": \"button\",\n          \"text\": {\n            \"type\": \"plain_text\",\n            \"text\": \"❌ Deny\"\n          },\n          \"style\": \"danger\",\n          \"value\": \"deny\"\n        }\n      ]\n    }\n  ]\n}"
+      },
+      "name": "Send Slack with Approval",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 1,
+      "position": [1050, 300]
+    }
+  ],
+  "connections": {
+    "Webhook - CPU Alert": {
+      "main": [[{ "node": "Is CPU Alert?", "type": "main", "index": 0 }]]
+    },
+    "Is CPU Alert?": {
+      "main": [[{ "node": "Fetch CPU Metrics (1hr)", "type": "main", "index": 0 }]]
+    },
+    "Fetch CPU Metrics (1hr)": {
+      "main": [[{ "node": "Gemini AI Analysis", "type": "main", "index": 0 }]]
+    },
+    "Gemini AI Analysis": {
+      "main": [[{ "node": "Send Slack with Approval", "type": "main", "index": 0 }]]
+    }
+  }
+}
