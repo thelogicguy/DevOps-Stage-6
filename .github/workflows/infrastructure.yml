@@ -29,6 +29,10 @@ concurrency:
 jobs:
   terraform:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: write
     outputs:
       drift: ${{ steps.plan.outputs.drift }}
       server_ip: ${{ steps.apply.outputs.server_ip }}
@@ -58,8 +62,6 @@ jobs:
           chmod 644 $HOME/.ssh/terraform-deploy-key.pub
           echo "TF_VAR_ssh_private_key_path=$HOME/.ssh/terraform-deploy-key" >> $GITHUB_ENV
           echo "TF_VAR_ssh_public_key_path=$HOME/.ssh/terraform-deploy-key.pub" >> $GITHUB_ENV
-          echo "TF_VAR_ssh_private_key=${{ secrets.SSH_PRIVATE_KEY }}" >> $GITHUB_ENV
-          echo "TF_VAR_ssh_public_key=${{ secrets.SSH_PUBLIC_KEY }}" >> $GITHUB_ENV
 
       - name: Setup S3 bucket for backend
         run: |
@@ -200,6 +202,7 @@ jobs:
 
       - name: Send Drift Detection Email
         if: steps.plan.outputs.drift == 'true'
+        continue-on-error: true
         uses: dawidd6/action-send-mail@v3
         with:
           server_address: smtp.mail.yahoo.com
@@ -282,7 +285,7 @@ jobs:
         if: steps.plan.outputs.drift == 'true'
         uses: trstringer/manual-approval@v1
         with:
-          secret: ${{ github.TOKEN }}
+          secret: ${{ secrets.GITHUB_TOKEN }}
           approvers: ${{ github.repository_owner }}
           minimum-approvals: 1
           polling-interval-seconds: 60
@@ -386,6 +389,7 @@ jobs:
 
       - name: Send Success Notification
         if: success()
+        continue-on-error: true
         uses: dawidd6/action-send-mail@v3
         with:
           server_address: smtp.mail.yahoo.com
@@ -443,6 +447,7 @@ jobs:
 
       - name: Send Failure Notification
         if: failure()
+        continue-on-error: true
         uses: dawidd6/action-send-mail@v3
         with:
           server_address: smtp.mail.yahoo.com
