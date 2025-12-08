@@ -211,7 +211,7 @@ jobs:
     name: Send Drift Notification
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    needs: [terraform-plan, skip-if-no-drift]
+    needs: terraform-plan
     if: needs.terraform-plan.outputs.has_changes == 'true'
 
     steps:
@@ -239,7 +239,7 @@ jobs:
     name: Await Manual Approval
     runs-on: ubuntu-latest
     timeout-minutes: 1440
-    needs: [terraform-plan, skip-if-no-drift, send-drift-notification]
+    needs: [terraform-plan, send-drift-notification]
     if: |
       needs.terraform-plan.outputs.has_changes == 'true' &&
       github.event.inputs.force_apply != 'true'
@@ -256,7 +256,7 @@ jobs:
     name: Apply Changes
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    needs: [terraform-plan, skip-if-no-drift, await-approval]
+    needs: [terraform-plan, await-approval]
     if: |
       always() &&
       needs.terraform-plan.result == 'success' &&
