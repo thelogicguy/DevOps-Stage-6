@@ -63,6 +63,17 @@ jobs:
         working-directory: ./infra/terraform
         run: terraform validate
 
+      - name: Setup SSH Keys for Plan
+        id: setup-ssh-plan
+        run: |
+          mkdir -p $HOME/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > $HOME/.ssh/terraform-deploy-key
+          echo "${{ secrets.SSH_PUBLIC_KEY }}" > $HOME/.ssh/terraform-deploy-key.pub
+          chmod 600 $HOME/.ssh/terraform-deploy-key
+          chmod 644 $HOME/.ssh/terraform-deploy-key.pub
+          echo "ssh_private_key_path=$HOME/.ssh/terraform-deploy-key" >> $GITHUB_OUTPUT
+          echo "ssh_public_key_path=$HOME/.ssh/terraform-deploy-key.pub" >> $GITHUB_OUTPUT
+
       - name: Terraform Plan
         id: plan
         working-directory: ./infra/terraform
@@ -71,19 +82,23 @@ jobs:
           TF_VAR_cloudflare_email: ${{ secrets.CLOUDFLARE_EMAIL }}
           TF_VAR_cloudflare_api_token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           TF_VAR_jwt_secret: ${{ secrets.JWT_SECRET }}
+          TF_VAR_ssh_private_key_path: ${{ steps.setup-ssh-plan.outputs.ssh_private_key_path }}
+          TF_VAR_ssh_public_key_path: ${{ steps.setup-ssh-plan.outputs.ssh_public_key_path }}
+          TF_VAR_ssh_private_key: ${{ secrets.SSH_PRIVATE_KEY }}
+          TF_VAR_ssh_public_key: ${{ secrets.SSH_PUBLIC_KEY }}
           TF_IN_AUTOMATION: "true"
         run: |
           set -o pipefail
           set +e
-          
+
           # run plan and preserve exit code
           terraform plan -input=false -detailed-exitcode -out=tfplan \
             2>&1 | tee plan.log
-          
+
           exitcode=${PIPESTATUS[0]}
-          
+
           set -e
-          
+
           echo "exitcode=$exitcode" >> $GITHUB_OUTPUT
 
           if [ $exitcode -eq 0 ]; then
@@ -303,6 +318,8 @@ jobs:
           TF_VAR_jwt_secret: ${{ secrets.JWT_SECRET }}
           TF_VAR_ssh_private_key_path: ${{ steps.setup-ssh.outputs.ssh_private_key_path }}
           TF_VAR_ssh_public_key_path: ${{ steps.setup-ssh.outputs.ssh_public_key_path }}
+          TF_VAR_ssh_private_key: ${{ secrets.SSH_PRIVATE_KEY }}
+          TF_VAR_ssh_public_key: ${{ secrets.SSH_PUBLIC_KEY }}
           TF_IN_AUTOMATION: "true"
         run: |
           if [ "${{ needs.terraform-plan.outputs.has_changes }}" == "true" ]; then

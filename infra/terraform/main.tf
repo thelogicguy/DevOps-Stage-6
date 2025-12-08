@@ -2,7 +2,7 @@
 
 terraform {
   required_version = ">= 1.5.0"
-  
+
   required_providers {
     aws = {
       source  = "hashicorp/aws"
@@ -168,7 +168,7 @@ resource "null_resource" "wait_for_instance" {
   # Ensures this resource only runs after the instance is provisioned 
   # and the EIP is associated.
   depends_on = [
-    aws_instance.app_server, 
+    aws_instance.app_server,
     aws_eip.app_server,
     local_file.ansible_inventory,
   ]
@@ -179,8 +179,8 @@ resource "null_resource" "wait_for_instance" {
     user        = var.ssh_user
     private_key = file(var.ssh_private_key_path)
     # Use the public IP from the EIP resource
-    host        = aws_eip.app_server.public_ip
-    timeout     = "10m" # Terraform will retry connection for up to 10 minutes
+    host    = aws_eip.app_server.public_ip
+    timeout = "10m" # Terraform will retry connection for up to 10 minutes
   }
 
   # === Remote-Exec: The actual command to run on the instance ===
@@ -189,7 +189,7 @@ resource "null_resource" "wait_for_instance" {
       "echo 'Successfully connected via SSH.'",
       "echo 'Waiting for cloud-init to complete...'",
       # Wait for the package manager lock to clear, signaling initial setup is done.
-      "while sudo lsof /var/lib/dpkg/lock-frontend >/dev/null; do sleep 5; done", 
+      "while sudo lsof /var/lib/dpkg/lock-frontend >/dev/null; do sleep 5; done",
       "echo 'Instance is ready for configuration.'",
     ]
   }
@@ -199,37 +199,51 @@ resource "null_resource" "wait_for_instance" {
   }
 }
 
+# Generate hash of Ansible content for change detection
+locals {
+  ansible_content_hash = md5(join("", [
+    for file in fileset("${path.module}/../ansible", "**/*.{yml,yaml,j2}") :
+    filemd5("${path.module}/../ansible/${file}")
+  ]))
+}
+
 # Run Ansible Playbook
 resource "null_resource" "run_ansible" {
   triggers = {
-    instance_id = aws_instance.app_server.id
-    inventory   = local_file.ansible_inventory.content
+    instance_id          = aws_instance.app_server.id
+    inventory            = local_file.ansible_inventory.content
+    ansible_content_hash = local.ansible_content_hash
   }
 
   provisioner "local-exec" {
     working_dir = "${path.module}/../ansible"
 
     environment = {
-      DOMAIN                     = var.domain
-      CF_API_EMAIL               = var.cloudflare_email
-      CF_DNS_API_TOKEN           = var.cloudflare_api_token
-      JWT_SECRET                 = var.jwt_secret
-      APP_REPO_URL               = var.app_repo_url
-      APP_REPO_BRANCH            = var.app_repo_branch
-      ANSIBLE_HOST_KEY_CHECKING  = "False"
-      PRIVATE_KEY                = var.ssh_private_key
+      DOMAIN                    = var.domain
+      CF_API_EMAIL              = var.cloudflare_email
+      CF_DNS_API_TOKEN          = var.cloudflare_api_token
+      JWT_SECRET                = var.jwt_secret
+      APP_REPO_URL              = var.app_repo_url
+      APP_REPO_BRANCH           = var.app_repo_branch
+      ANSIBLE_HOST_KEY_CHECKING = "False"
+      PRIVATE_KEY               = var.ssh_private_key
     }
 
     command = <<EOT
-      # Write the private key for SSH
-      echo "$PRIVATE_KEY" > key.pem
-      chmod 600 key.pem
+      set -e
 
-      # Make sure the inventory has the correct user
-      sed -i 's/$/ ansible_user=ubuntu/' inventory/hosts
+      # Create temporary key file with unique name
+      TEMP_KEY=$(mktemp -t ansible-key.XXXXXX)
+      trap "rm -f $TEMP_KEY" EXIT
+
+      # Write the private key for SSH
+      echo "$PRIVATE_KEY" > "$TEMP_KEY"
+      chmod 600 "$TEMP_KEY"
 
       # Run the playbook with the private key
-      ansible-playbook -i inventory/hosts playbook.yml --private-key key.pem
+      ansible-playbook -i inventory/hosts playbook.yml --private-key "$TEMP_KEY"
+
+      # Cleanup is handled by trap on EXIT
     EOT
   }
 
