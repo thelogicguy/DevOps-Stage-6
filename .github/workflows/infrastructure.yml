@@ -88,29 +88,27 @@ jobs:
           TF_VAR_ssh_public_key: ${{ secrets.SSH_PUBLIC_KEY }}
           TF_IN_AUTOMATION: "true"
         run: |
-          set -o pipefail
-          set +e
-
-          # run plan and preserve exit code
-          terraform plan -input=false -detailed-exitcode -out=tfplan \
-            2>&1 | tee plan.log
-
+          # Run terraform plan and capture exit code properly
+          terraform plan -input=false -detailed-exitcode -out=tfplan 2>&1 | tee plan.log
           exitcode=${PIPESTATUS[0]}
-
-          set -e
 
           echo "exitcode=$exitcode" >> $GITHUB_OUTPUT
 
           if [ $exitcode -eq 0 ]; then
             echo "has_changes=false" >> $GITHUB_OUTPUT
-            echo "No changes."
+            echo "✅ No changes detected - infrastructure is in sync."
           elif [ $exitcode -eq 1 ]; then
-            echo "Terraform plan failed."
+            echo "has_changes=false" >> $GITHUB_OUTPUT
+            echo "❌ Terraform plan failed."
             exit 1
           elif [ $exitcode -eq 2 ]; then
             echo "has_changes=true" >> $GITHUB_OUTPUT
-            echo "DRIFT DETECTED!"
+            echo "⚠️ DRIFT DETECTED - Changes found in infrastructure!"
             terraform show -no-color tfplan | head -100
+          else
+            echo "has_changes=false" >> $GITHUB_OUTPUT
+            echo "❌ Unexpected exit code: $exitcode"
+            exit 1
           fi
 
 
