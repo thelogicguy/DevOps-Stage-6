@@ -216,6 +216,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: tfplan-${{ github.run_id }}
+          path: ./
 
       - name: Send Email Alert (Drift Detected)
         uses: dawidd6/action-send-mail@v3
@@ -228,7 +229,7 @@ jobs:
           subject: "⚠️ Terraform Drift Detected - ${{ github.repository }}"
           to: ${{ secrets.YAHOO_NOTIFICATION_EMAIL }}
           from: ${{ secrets.YAHOO_EMAIL_USERNAME }}
-          body: file://./infra/terraform/drift-email.txt
+          body: file://drift-email.txt
           convert_markdown: false
           priority: high
 
