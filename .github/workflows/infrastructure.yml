@@ -147,7 +147,6 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: tfplan-${{ github.run_id }}
-          # CORRECTED PATHS: Specify the full relative path to the files
           path: |
             infra/terraform/tfplan
             infra/terraform/drift-report.md
