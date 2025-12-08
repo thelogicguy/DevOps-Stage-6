@@ -197,6 +197,10 @@ resource "null_resource" "wait_for_instance" {
   triggers = {
     public_ip = aws_eip.app_server.public_ip
   }
+
+  lifecycle {
+    ignore_changes = all
+  }
 }
 
 # Generate hash of Ansible content for change detection
@@ -250,4 +254,8 @@ resource "null_resource" "run_ansible" {
   depends_on = [
     null_resource.wait_for_instance
   ]
+
+  lifecycle {
+    ignore_changes = all
+  }
 }
