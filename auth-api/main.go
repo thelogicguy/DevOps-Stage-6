@@ -64,7 +64,7 @@ func main() {
 
 	// Route => handler
 	e.GET("/", func(c echo.Context) error {
-		return c.JSON(http.StatusNotFound, map[string]string{"error": "Not Found"})
+		return c.JSON(http.StatusNotFound, map[string]string{"error": "Not Foound"})
 	})
 
 	e.GET("/version", func(c echo.Context) error {
