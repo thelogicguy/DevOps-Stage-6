@@ -118,6 +118,9 @@ jobs:
         if: steps.plan.outputs.exitcode == '2'
         working-directory: ./infra/terraform
         run: |
+          # Extract only the resource changes from terraform plan
+          CHANGES=$(terraform show -no-color tfplan | sed -n '/Terraform will perform the following actions:/,/Plan:/p')
+
           echo "# Drift Detection Report" > drift-report.md
           echo "" >> drift-report.md
           echo "**Status:** 🔴 Configuration Drift Detected" >> drift-report.md
@@ -127,30 +130,28 @@ jobs:
           echo "## Planned Changes" >> drift-report.md
           echo "" >> drift-report.md
           echo '```terraform' >> drift-report.md
-          terraform show -no-color tfplan >> drift-report.md
+          echo "$CHANGES" >> drift-report.md
           echo '```' >> drift-report.md
-          
-          # Also create plain text version for email
+
+          # Create concise plain text version for email showing only exact changes
           echo "TERRAFORM DRIFT DETECTED - ACTION REQUIRED" > drift-email.txt
           echo "" >> drift-email.txt
           echo "Configuration drift has been detected in your infrastructure!" >> drift-email.txt
           echo "" >> drift-email.txt
-          echo "DETAILS:" >> drift-email.txt
-          echo "========================================" >> drift-email.txt
           echo "Repository: ${{ github.repository }}" >> drift-email.txt
           echo "Branch: ${{ github.ref_name }}" >> drift-email.txt
-          echo "Commit: ${{ github.sha }}" >> drift-email.txt
           echo "Triggered by: ${{ github.actor }}" >> drift-email.txt
           echo "Time: $(date -u)" >> drift-email.txt
           echo "" >> drift-email.txt
-          echo "PLANNED CHANGES:" >> drift-email.txt
           echo "========================================" >> drift-email.txt
-          terraform show -no-color tfplan >> drift-email.txt
+          echo "EXACT INFRASTRUCTURE CHANGES:" >> drift-email.txt
+          echo "========================================" >> drift-email.txt
+          echo "" >> drift-email.txt
+          echo "$CHANGES" >> drift-email.txt
           echo "" >> drift-email.txt
           echo "========================================" >> drift-email.txt
           echo "" >> drift-email.txt
-          echo "APPROVAL REQUIRED:" >> drift-email.txt
-          echo "To apply these changes:" >> drift-email.txt
+          echo "APPROVAL REQUIRED TO APPLY CHANGES:" >> drift-email.txt
           echo "1. Visit: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" >> drift-email.txt
           echo "2. Review the changes carefully" >> drift-email.txt
           echo "3. Approve the 'production' environment deployment" >> drift-email.txt
