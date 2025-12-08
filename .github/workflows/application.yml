@@ -100,7 +100,7 @@ jobs:
         run: |
           cat > infra/ansible/inventory/hosts <<EOF
           [app_servers]
-          app-server ansible_host=${{ steps.get_ip.outputs.server_ip }} ansible_user=ubuntu ansible_ssh_private_key_file=infra/ansible/keys/id_rsa
+          app-server ansible_host=${{ steps.get_ip.outputs.server_ip }} ansible_user=ubuntu ansible_ssh_private_key_file=keys/id_rsa
 
           [app_servers:vars]
           ansible_python_interpreter=/usr/bin/python3
