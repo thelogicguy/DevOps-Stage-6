@@ -48,4 +48,8 @@ node_modules/
 target/
 __pycache__/
 *.pyc
-
+MONITORING_*
+N8N_*
+test-*
+cpu-*
+ALERT_*

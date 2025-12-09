@@ -12,6 +12,18 @@ groups:
             summary: "High CPU usage detected"
             description: "CPU usage is above 80% (current: {{ $value }}%)"
 
+        - alert: HighContainerCPU
+          expr: (rate(container_cpu_usage_seconds_total{name!=""}[1m]) * 100) > 50
+          for: 30s
+          labels:
+            severity: critical
+            type: cpu
+            automation: ec2_scaling
+          annotations:
+            summary: "High CPU usage on container {{ $labels.name }}"
+            description: "Container {{ $labels.name }} CPU usage is above 50% (current: {{ $value | humanize }}%). Consider scaling EC2 instances."
+            action: "Scale EC2 instances to handle increased load"
+
         - alert: ContainerDown
           expr: up == 0
           for: 1m

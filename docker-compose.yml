@@ -8,6 +8,7 @@ services:
     ports:
       - "80:80"
       - "443:443"
+      - "8082:8082"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - ./traefik/traefik.yml:/traefik.yml:ro
@@ -18,6 +19,7 @@ services:
       - CF_DNS_API_TOKEN=${CF_DNS_API_TOKEN}
     networks:
       - web
+      - monitoring
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.traefik.entrypoints=http"
@@ -310,6 +312,9 @@ services:
       - NODE_ENV=production
       - WEBHOOK_URL=https://n8n.${DOMAIN}/
       - GENERIC_TIMEZONE=UTC
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - SLACK_WEBHOOK_URL=${SLACK_WEBHOOK_URL}
     volumes:
       - n8n_data:/home/node/.n8n
     networks:

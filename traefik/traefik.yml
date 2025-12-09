@@ -4,9 +4,11 @@
 
 api:
   dashboard: true
-  insecure: false
+  insecure: true
 
 entryPoints:
+  metrics:
+    address: ":8082"
   http:
     address: ":80"
     http:
@@ -54,6 +56,7 @@ accessLog:
 
 metrics:
     prometheus:
+      entryPoint: metrics
       addEntryPointsLabels: true
       addServicesLabels: true
       buckets:
